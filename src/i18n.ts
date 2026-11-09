@@ -1,7 +1,7 @@
 // Interface translations. English is the source; any missing key falls back to English.
 // Add a language: add a column to ROWS (and an entry in NFB.LANGS).
-(() => {
-  const NFB = (globalThis.NFB = globalThis.NFB || {});
+import { NFB } from "./shared";
+
   const CODES = ["en", "es", "fr", "de", "pt"];
   // key, en, es, fr, de, pt
   const ROWS = [
@@ -186,7 +186,7 @@
     ["btn_done", "Got it", "Entendido", "Compris", "Verstanden", "Entendi"],
   ];
 
-  const D = {};
+  const D: Record<string, Record<string, string | undefined>> = {};
   CODES.forEach((c) => (D[c] = {}));
   ROWS.forEach((r) => CODES.forEach((c, i) => { if (r[i + 1] != null) D[c][r[0]] = r[i + 1]; }));
   NFB.i18n = D;
@@ -203,4 +203,3 @@
     if (s == null) return key;
     return vars ? s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] == null ? "" : vars[k])) : s;
   };
-})();

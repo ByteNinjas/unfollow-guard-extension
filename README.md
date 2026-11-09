@@ -9,9 +9,9 @@
 <br>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-[![Manifest V3](https://img.shields.io/badge/Manifest-V3-0095f6?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-0095f6?style=for-the-badge&logo=googlechrome&logoColor=white)](src/manifest.ts)
 [![Chromium 111+](https://img.shields.io/badge/Chromium-111%2B-6a3fc8?style=for-the-badge&logo=brave&logoColor=white)](#-installation)
-[![Version](https://img.shields.io/badge/version-1.8.0-16a34a?style=for-the-badge)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.9.0-16a34a?style=for-the-badge)](package.json)
 [![Facebook: beta](https://img.shields.io/badge/Facebook-BETA-f59e0b?style=for-the-badge&logo=facebook&logoColor=white)](#-facebook-beta)
 [![Firefox: experimental](https://img.shields.io/badge/Firefox-experimental-ff7139?style=for-the-badge&logo=firefoxbrowser&logoColor=white)](#-firefox-experimental)
 
@@ -145,19 +145,23 @@ Lists render in chunks, so even thousands of rows stay smooth. Every tab has sea
 
 The extension isn't on a store; you load it as an unpacked extension. It works in **Chrome, Brave, Edge, Opera and other Chromium browsers (version 111 or newer)**.
 
-1. **Download** this repository (or the zip) and **unzip** it somewhere permanent. Chromium remembers the folder, so don't move or delete it afterwards.
-2. Open `chrome://extensions` (or `brave://extensions`, `edge://extensions`).
-3. Turn on **Developer mode** (top-right).
-4. Click **Load unpacked** and select the project folder (the one that contains `manifest.json`).
-5. *(Optional)* Pin the extension from the puzzle-piece menu so the toolbar popup is one click away.
-6. Open [instagram.com](https://www.instagram.com) or [facebook.com](https://www.facebook.com) and **refresh the tab**. A blue **Unfollow Guard** button appears in a corner.
+1. **Download** this repository (or the release zip) and **unzip** it somewhere permanent. Chromium remembers the folder, so don't move or delete it afterwards.
+2. Build the extension once (Node 26 LTS or newer): `npm install && npm run build`. This writes the loadable extension to `dist/chromium/`.
+3. Open `chrome://extensions` (or `brave://extensions`, `edge://extensions`).
+4. Turn on **Developer mode** (top-right).
+5. Click **Load unpacked** and select the **`dist/chromium`** folder.
+6. *(Optional)* Pin the extension from the puzzle-piece menu so the toolbar popup is one click away.
+7. Open [instagram.com](https://www.instagram.com) or [facebook.com](https://www.facebook.com) and **refresh the tab**. A blue **Unfollow Guard** button appears in a corner.
+
+> [!NOTE]
+> `npm run build` produces both `dist/unfollow-guard-chromium.zip` and the experimental Firefox zip. Rebuild after pulling changes; the extension is written in TypeScript and bundled with Vite.
 
 > [!TIP]
 > **Updating:** unzip the new version over the old folder, click the ↻ reload icon on the extension card, then **refresh your Instagram/Facebook tab**. Your saved scans, kept accounts and history stay in place.
 
 ### 🦊 Firefox (experimental)
 
-`python3 scripts/build.py` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **128+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
+`npm run build` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **140+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
 
 ## 🧭 Quick start
 
@@ -210,7 +214,7 @@ Two unfollow methods are available (⚙ Settings → *Instagram unfollow method*
 
 | Method | How it works | When to use it |
 | --- | --- | --- |
-| **Direct API** *(default)* | Sends the same request Instagram's own page sends, including the page's current security tokens, which a tiny script (`hook.js`) copies from the site's own requests. | Fast and quiet. If Instagram rejects it, the batch **automatically switches to Browser clicks** and says so in the log. |
+| **Direct API** *(default)* | Sends the same request Instagram's own page sends, including the page's current security tokens, which a tiny script (`src/hook.iife.ts`) copies from the site's own requests. | Fast and quiet. If Instagram rejects it, the batch **automatically switches to Browser clicks** and says so in the log. |
 | **Browser clicks** | Opens each profile and clicks **Following → Unfollow** like a person. The page reloads for each account and the batch resumes by itself. | Most robust. The tab has to stay open. Button labels are matched in many languages; add your own in the settings if needed. |
 
 ### Resilience
@@ -272,9 +276,9 @@ Everything stays **on your computer**, stored separately for each Instagram/Face
 | Access to `cdninstagram.com`, `fbcdn.net` | Lets the background worker load a profile picture when the page itself can't. It only accepts those picture hosts, only images, sends no cookies, and is never used as a general proxy. |
 | Access to `instagram.com`, `facebook.com` | Required to show the panel and talk to those sites from your logged-in session. |
 
-**About `hook.js`:** on Instagram a small script runs inside the page and *only observes* the site's own API requests to remember a few header values and the page token that the site itself uses (for example `x-ig-www-claim`, `fb_dtsg`). These values stay in the page and are used only to make the unfollow request look exactly like the site's own. They are never stored in your settings and never leave your browser.
+**About the page hook:** on Instagram a small script (`src/hook.iife.ts`) runs inside the page and *only observes* the site's own API requests to remember a few header values and the page token that the site itself uses (for example `x-ig-www-claim`, `fb_dtsg`). These values stay in the page and are used only to make the unfollow request look exactly like the site's own. They are never stored in your settings and never leave your browser.
 
-You can inspect all of the code. There is no build step, no minification and no third-party dependency in the extension itself.
+You can inspect all of the code in [`src/`](src). The extension is written in TypeScript and bundled with Vite; builds are neither minified nor obfuscated, and the only runtime dependencies are the browser's own APIs.
 
 ## 🧪 Facebook (beta)
 
@@ -287,7 +291,7 @@ Facebook support is a **beta feature and has not been tested much**. Facebook ha
 Notes:
 - Your **Followers** list only exists if *Who can follow me* is set to **Public** in your Facebook privacy settings.
 - The "non-followers" list **includes Pages and public figures** you follow, since they never follow back. Review it before selecting.
-- Facebook changes its page structure often; the page-matching code lives in [`facebook.js`](facebook.js) so it is easy to adjust. Text matching assumes an **English** interface.
+- Facebook changes its page structure often; the page-matching code lives in [`src/adapters/facebook.ts`](src/adapters/facebook.ts) so it is easy to adjust. Text matching assumes an **English** interface.
 - The default daily limit is **20**. The Changes tab and Re-follow are Instagram-only.
 
 If something doesn't work, the **Activity log** and the browser console (`F12`) explain what the extension saw.
@@ -407,49 +411,57 @@ Those lists are filled by a scan. If you have more than 2,000 followers and scan
 
 ```text
 .
-├── manifest.json            # Manifest V3 definition, permissions, shortcut and content scripts
-├── background.js            # Service worker: toolbar badge, desktop notifications, keyboard shortcut
-├── hook.js                  # Runs in the Instagram page (MAIN world): observes the site's own request headers/tokens
-├── shared.js                # Settings, storage helpers, dialogs, theme + shared styles and the settings form
-├── i18n.js                  # Interface translations (en, es, fr, de, pt) and the t() helper
-├── instagram.js             # Instagram adapter: scan, direct API unfollow/follow, browser clicks (multi-language), self-check
-├── facebook.js              # Facebook adapter (beta): collect lists by scrolling, unfollow by clicking, self-check
-├── content.js               # The panel UI: tabs, filters, labels, selection, keep/undo, stats, progress card, batch loop, schedule, tour
-├── popup.html / popup.js    # Toolbar popup: enable switch and settings
-├── adapters/_template.js    # Skeleton for supporting another site
-├── icons/                   # Extension icons (PNG + SVG source)
+├── src/
+│   ├── manifest.ts          # Manifest V3 definition, permissions, shortcut and content scripts (version from package.json)
+│   ├── background.ts        # Service worker: toolbar badge, desktop notifications, keyboard shortcut
+│   ├── hook.iife.ts         # Runs in the Instagram page (MAIN world) at document_start: observes the site's own request headers/tokens
+│   ├── shared.ts            # Settings, storage helpers, dialogs, theme + shared styles and the settings form
+│   ├── i18n.ts              # Interface translations (en, es, fr, de, pt) and the t() helper
+│   ├── types.ts             # Domain types shared by every module
+│   ├── adapters/
+│   │   ├── instagram.ts     # Instagram: scan, direct API unfollow/follow, browser clicks (multi-language), self-check
+│   │   ├── facebook.ts      # Facebook (beta): collect lists by scrolling, unfollow by clicking, self-check
+│   │   ├── _template.ts     # Skeleton for supporting another site
+│   │   └── index.ts         # Adapter registry used by the content bundle
+│   ├── content/index.ts     # The panel UI: tabs, filters, labels, selection, keep/undo, stats, progress card, batch loop, schedule, tour
+│   └── popup/               # Toolbar popup: enable switch and settings
+├── public/icons/            # Extension icons copied verbatim into the build (PNG + SVG source)
 ├── docs/                    # README artwork, the demo GIF and ADDING-A-SITE.md
 ├── scripts/
-│   ├── build.py             # Builds the Chromium and (experimental) Firefox packages into dist/
+│   ├── build-test.mjs       # Builds the IIFE bundles used by Vitest and the screenshots
+│   ├── build.py             # Packages dist/chromium and the experimental Firefox zip
 │   └── screenshots/         # Renders the screenshots and GIF from the real UI with demo data
-├── tests/                   # Automated tests (jsdom): panel, new features, unfollow flows, languages, adapter interface, popup
+├── tests/                   # Vitest + jsdom suites: panel, features, limits, gone accounts, avatars, languages, adapter interface, popup
+├── dist/                    # Build output (not committed)
+├── vite.config.ts           # Vite + CRXJS build (MV3 bundle, content script, service worker)
+├── vitest.config.ts         # Test runner configuration
+├── tsconfig.json            # TypeScript configuration
 ├── LICENSE                  # MIT
 └── README.md
 ```
 
-Each site is an **adapter** that exposes the same small interface (`scan`, `unfollow`, `follow`, `canScan`, `navigateTo`, `accountId`, `diagnose`, …). Supporting another site means adding one file and registering it; see [`docs/ADDING-A-SITE.md`](docs/ADDING-A-SITE.md) and [`adapters/_template.js`](adapters/_template.js).
+Each site is an **adapter** that exposes the same small interface (`scan`, `unfollow`, `follow`, `canScan`, `navigateTo`, `accountId`, `diagnose`, …). Supporting another site means adding one file and registering it; see [`docs/ADDING-A-SITE.md`](docs/ADDING-A-SITE.md) and [`src/adapters/_template.ts`](src/adapters/_template.ts).
 
 ## 🛠 Development
 
-The extension has **no build step**: edit the files and reload. Dev tooling (tests, screenshots) is optional.
+The extension is written in **TypeScript** and bundled with **Vite** + `@crxjs/vite-plugin`; tests run on **Vitest** with jsdom. Node 26 LTS or newer.
 
 ```bash
-# run the extension from source
-#   1. edit any file
-#   2. chrome://extensions  →  ↻ reload the extension
-#   3. refresh the Instagram / Facebook tab
-
-npm install          # dev tools only (Node 26 LTS or newer): jsdom, puppeteer-core, @sparticuz/chromium
-npm test             # runs the automated tests (simulated browser, no network)
-npm run build        # dist/unfollow-guard-chromium.zip and ...-firefox.zip
+npm install          # install the toolchain
+npm run dev          # Vite dev server with HMR (load dist/chromium or use the CRXJS workflow)
+npm run typecheck    # tsc --noEmit
+npm test             # builds the test bundles, then runs every Vitest suite (simulated browser, no network)
+npm run build        # dist/chromium/ + dist/unfollow-guard-chromium.zip + dist/unfollow-guard-firefox.zip
 npm run screenshots  # re-renders docs/screenshots and docs/demo.gif (needs pillow: pip install pillow)
 ```
 
+After changing source files, rebuild (`npm run build`) and click ↻ on the extension card in `chrome://extensions`, then refresh the Instagram/Facebook tab.
+
 Tips:
-- **Tooling policy:** every package and CI action stays on the latest stable release. Dependabot opens weekly grouped PRs into `dev` for npm and GitHub Actions; CI runs on the latest Node LTS. Do not pin older versions.
+- **Tooling policy:** every package and CI action stays on the latest stable release. Dependabot opens weekly grouped PRs into `dev` for npm and GitHub Actions; CI runs the latest Node LTS. Do not pin older versions.
 - Console messages are prefixed with `[Unfollow Guard]`.
 - All data lives in `chrome.storage.local`, under keys like `nfb_<name>_<site>_<accountId>`. Inspect it from the extension's service-worker console with `chrome.storage.local.get(null, console.log)`.
-- To add a language, add a column to `ROWS` in `i18n.js` (a test checks that every key exists in every language and that placeholders match).
+- To add a language, add a column to `ROWS` in `src/i18n.ts` (a test checks that every key exists in every language and that placeholders match).
 - Avoid naming top-level variables in extension pages after window properties (`top`, `name`, `status`…); they can stop a script from running.
 - The tests cover the panel, scanning, follower changes, cool-down, active hours, warm-up, protection rules, filters, labels, undo, schedule, notifications, the toolbar badge, keyboard, tour, accessibility attributes, self-check, re-follow, export/import, translations and the browser-click method in several languages. They run against a simulated browser, **not** against live Instagram or Facebook.
 
@@ -475,7 +487,7 @@ Tips:
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first to discuss what you'd like to change. Keep the guard rails (daily limit, delays, stop-on-block) intact; they are the point of the project. Please run `npm test` before opening a pull request.
+Issues and pull requests are welcome. For larger changes, please open an issue first to discuss what you'd like to change. Keep the guard rails (daily limit, delays, stop-on-block) intact; they are the point of the project. Please run `npm run typecheck && npm test` before opening a pull request.
 
 ## ⚠️ Disclaimer
 

@@ -1,6 +1,6 @@
 {
   "name": "unfollow-guard",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "description": "Unfollow Guard: a Chromium extension to see who doesn't follow you back on Instagram & Facebook and unfollow them safely.",
   "license": "MIT",
@@ -8,13 +8,27 @@
     "node": ">=26.0.0"
   },
   "scripts": {
-    "test": "node tests/features.js && node tests/features2.js && node tests/features3.js && node tests/limits.js && node tests/gone-accounts.js && node tests/avatars.js && node tests/adapter-template.js && node tests/ui-labels.js && node tests/popup.js && node tests/reenable.js",
-    "build": "python3 scripts/build.py",
-    "screenshots": "node scripts/screenshots/shoot.js && python3 scripts/screenshots/make-gif.py"
+    "dev": "vite",
+    "build": "vite build && node scripts/build-test.mjs && python3 scripts/build.py",
+    "build:vite": "vite build",
+    "build:test": "node scripts/build-test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build:test && vitest run",
+    "test:watch": "npm run build:test && vitest",
+    "coverage": "npm run build:test && vitest run --coverage",
+    "screenshots": "npm run build:test && node scripts/screenshots/shoot.js && python3 scripts/screenshots/make-gif.py"
   },
   "devDependencies": {
+    "@crxjs/vite-plugin": "^3.0.0",
     "@sparticuz/chromium": "^153.0.0",
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
     "jsdom": "^31.0.0",
-    "puppeteer-core": "^25.16.0"
-  }
+    "puppeteer-core": "^25.16.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  },
+  "type": "module"
 }

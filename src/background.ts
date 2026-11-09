@@ -1,6 +1,6 @@
 // Toolbar badge, desktop notifications and the keyboard shortcut.
 const refresh = async () => {
-  const o = await chrome.storage.local.get(["enabled", "nfb_status"]);
+  const o = await chrome.storage.local.get<Record<string, any>>(["enabled", "nfb_status"]);
   const st = o.nfb_status || {};
   let text = "", color = "#6b7280";
   if (o.enabled === false) text = "OFF";
@@ -18,7 +18,7 @@ refresh();
 // the page asks for a desktop notification (batch finished / stopped / blocked)
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || msg.type !== "notify") return;
-  chrome.storage.local.get("notifyEnabled").then((o) => {
+  chrome.storage.local.get<Record<string, any>>("notifyEnabled").then((o) => {
     if (o.notifyEnabled === false) return;
     chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title: String(msg.title || "Unfollow Guard"), message: String(msg.message || "") });
   });
