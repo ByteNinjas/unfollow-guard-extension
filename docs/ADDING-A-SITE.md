@@ -30,7 +30,7 @@ The template documents every field, and the shape of a `user` object.
 2. **`src/adapters/index.ts`**: import the new adapter next to the Instagram and Facebook ones.
 3. **`src/manifest.ts`**: add the site's URL pattern to the content script's `matches`.
 
-Run `npm run build`, then load `dist/chromium/` (the adapters are bundled together, so there is no script list to edit).
+Run `pnpm run build`, then load `dist/chromium/` (the adapters are bundled together, so there is no script list to edit).
 
 ## 3. Test it
 

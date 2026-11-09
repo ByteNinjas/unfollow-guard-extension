@@ -22,12 +22,15 @@ Read them before making changes.
   reintroduce older versions.
 - Node.js: latest LTS (currently **26.x**, “Lithium”). `.nvmrc` and CI use `lts/*`; `package.json`
   declares `"engines": { "node": ">=26.0.0" }`.
-- Run `npm install` after touching `package.json`, commit the regenerated `package-lock.json`, and
-  confirm `npm outdated` prints nothing before pushing.
-- Dependabot (`.github/dependabot.yml`) opens weekly grouped PRs for npm and GitHub Actions into
-  `dev`. Treat those as normal PRs: run the tests, then merge.
-- CI (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test` and `npm run build`
-  on pushes and PRs to `main` and `dev`.
+- Package manager: **pnpm** latest stable. `package.json` pins it in `packageManager`; CI installs
+  that exact version through `pnpm/action-setup`. Do not commit `package-lock.json`.
+- Run `pnpm install` after touching `package.json`, commit the regenerated `pnpm-lock.yaml`, and
+  confirm `pnpm outdated` prints nothing before pushing.
+- Dependabot (`.github/dependabot.yml`) reads `pnpm-lock.yaml` through the npm ecosystem and opens
+  weekly grouped PRs for pnpm dependencies and GitHub Actions into `dev`. Treat those as normal
+  PRs: run the tests, then merge.
+- CI (`.github/workflows/ci.yml`) runs `pnpm install --frozen-lockfile`, `pnpm run typecheck`,
+  `pnpm test` and `pnpm run build` on pushes and PRs to `main` and `dev`.
 - Prefer the standard library over new dependencies. If a dependency is added, it must be the
   latest stable version and justified.
 
@@ -51,11 +54,11 @@ Read them before making changes.
 
 - Run the full suite before every commit:
   ```bash
-  npm install
-  npm run typecheck
-  npm test
+  pnpm install
+  pnpm run typecheck
+  pnpm test
   ```
-- Tests are Vitest suites with jsdom simulations (no network). `npm test` first builds the IIFE
+- Tests are Vitest suites with jsdom simulations (no network). `pnpm test` first builds the IIFE
   bundles in `dist/test/` (`scripts/build-test.mjs`), then runs every `tests/**/*.test.ts` file.
 - Add or update tests for every behavior change. Do not delete or weaken tests to get green.
 - When adding a test, follow the existing harness pattern: `JSDOM` with `runScripts: "outside-only"`,
@@ -71,7 +74,7 @@ Read them before making changes.
 ## Architecture notes
 
 - Manifest V3 Chromium extension written in TypeScript and bundled with Vite + `@crxjs/vite-plugin`.
-  Edit `src/`, run `npm run build`, then reload at `chrome://extensions` (the loadable folder is
+  Edit `src/`, run `pnpm run build`, then reload at `chrome://extensions` (the loadable folder is
   `dist/chromium/`).
 - `src/content/index.ts` is the in-page panel UI (shadow DOM, tabs, filters, selection, batch loop,
   schedule, stats, tour). `src/shared.ts` holds settings/storage/dialog helpers and shared styles.

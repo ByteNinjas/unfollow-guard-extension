@@ -4,8 +4,10 @@
   "private": true,
   "description": "Unfollow Guard: a Chromium extension to see who doesn't follow you back on Instagram & Facebook and unfollow them safely.",
   "license": "MIT",
+  "packageManager": "pnpm@12.18.0",
   "engines": {
-    "node": ">=26.0.0"
+    "node": ">=26.0.0",
+    "pnpm": ">=12.0.0"
   },
   "scripts": {
     "dev": "vite",
@@ -13,10 +15,10 @@
     "build:vite": "vite build",
     "build:test": "node scripts/build-test.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:test && vitest run",
-    "test:watch": "npm run build:test && vitest",
-    "coverage": "npm run build:test && vitest run --coverage",
-    "screenshots": "npm run build:test && node scripts/screenshots/shoot.js && python3 scripts/screenshots/make-gif.py"
+    "test": "pnpm run build:test && vitest run",
+    "test:watch": "pnpm run build:test && vitest",
+    "coverage": "pnpm run build:test && vitest run --coverage",
+    "screenshots": "pnpm run build:test && node scripts/screenshots/shoot.js && python3 scripts/screenshots/make-gif.py"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^3.0.0",
