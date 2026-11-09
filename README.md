@@ -161,7 +161,7 @@ The extension isn't on a store; you load it as an unpacked extension. It works i
 
 ### 🦊 Firefox (experimental)
 
-`npm run build` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **128+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
+`npm run build` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **140+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
 
 ## 🧭 Quick start
 

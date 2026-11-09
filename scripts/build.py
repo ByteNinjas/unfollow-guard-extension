@@ -2,7 +2,7 @@
 """Packages the Vite build into installable archives under dist/.
 
   dist/chromium/  + unfollow-guard-chromium.zip   (Chrome, Brave, Edge, Opera: load the folder unpacked)
-  dist/firefox/   + unfollow-guard-firefox.zip    (EXPERIMENTAL, untested: Firefox 128+)
+  dist/firefox/   + unfollow-guard-firefox.zip    (EXPERIMENTAL, untested: Firefox 140+)
 
 Usage:  python3 scripts/build.py
 Run `npm run build` instead: it builds the Vite output and the standalone
@@ -49,7 +49,12 @@ def main() -> None:
     manifest = json.loads((CHROMIUM / "manifest.json").read_text(encoding="utf-8"))
     manifest["background"] = {"scripts": ["background.js"]}  # Firefox has no MV3 service workers
     manifest["browser_specific_settings"] = {
-        "gecko": {"id": "unfollow-guard@mystic-monk.local", "strict_min_version": "128.0"}
+        "gecko": {
+            "id": "unfollow-guard@mystic-monk.local",
+            "strict_min_version": "140.0",
+            # The extension has no server, analytics or accounts: nothing is collected or sent.
+            "data_collection_permissions": {"required": ["none"]},
+        }
     }
     # Replace CRXJS's async content loader with the self-contained IIFE bundle.
     for entry in manifest.get("content_scripts", []):
