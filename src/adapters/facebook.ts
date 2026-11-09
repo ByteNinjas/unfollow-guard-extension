@@ -1,8 +1,8 @@
 // Facebook adapter. Facebook has no stable internal API like Instagram's, so this works on the page itself:
 // it scrolls your Followers / Following tabs to collect the lists, and unfollows by clicking the buttons.
 // All selectors/text matching live in this file (English UI) so they are easy to adjust.
-(() => {
-  const NFB = globalThis.NFB;
+import { NFB } from "../shared";
+import type { Adapter, ScanContext, ScanResult, Settings, User } from "../types";
 
   const RESERVED = new Set([
     "", "friends", "groups", "watch", "marketplace", "gaming", "pages", "events", "photo", "photos", "reel", "reels",
@@ -253,4 +253,3 @@
       throw new Error(`Couldn't confirm that ${u.username} was unfollowed`);
     },
   };
-})();

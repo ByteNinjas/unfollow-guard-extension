@@ -1,11 +1,14 @@
-const chromium = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
-const fs = require("fs");
-const { fullStore, initScript, PAGE_HTML, PAGE_HTML_DARK } = require("./demo.js");
-const EXT = require("path").join(__dirname, "..", "..") + "/";
+import chromium from "@sparticuz/chromium";
+import puppeteer from "puppeteer-core";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { fullStore, initScript, PAGE_HTML, PAGE_HTML_DARK } from "./demo.js";
+const EXT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..") + "/";
 const OUT = EXT + "docs/screenshots/";
-fs.mkdirSync(OUT, { recursive: true }); fs.mkdirSync(require("os").tmpdir() + "/nfb-frames", { recursive: true });
-const SRC = ["shared.js", "i18n.js", "instagram.js", "facebook.js", "content.js"].map((f) => fs.readFileSync(EXT + f, "utf8"));
+fs.mkdirSync(OUT, { recursive: true }); fs.mkdirSync(os.tmpdir() + "/nfb-frames", { recursive: true });
+const SRC = fs.readFileSync(EXT + "dist/test/content.js", "utf8");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const URL_ = "https://www.instagram.com/demo/";
 
@@ -18,7 +21,7 @@ async function newPage(browser, store, dark, scale = 1.5) {
   await page.evaluateOnNewDocument(initScript(store));
   await page.goto(URL_);
   await page.setCookie({ name: "ds_user_id", value: "777", url: URL_ }, { name: "csrftoken", value: "demo", url: URL_ });
-  for (const src of SRC) await page.addScriptTag({ content: src });
+  await page.addScriptTag({ content: SRC });
   await sleep(700);
   return page;
 }
@@ -87,7 +90,7 @@ const tab = (page, id) => click(page, `.tab[data-id="${id}"]`).then(() => sleep(
   fresh.__noDaily = true;
   fresh.nfb_onboarded = true;
   const page = await newPage(browser, fresh, false, 1);
-  let n = 0; const frame = async (label) => { await page.screenshot({ path: `${require("os").tmpdir()}/nfb-frames/f${String(n++).padStart(2, "0")}.png` }); console.log("frame", n - 1, label); };
+  let n = 0; const frame = async (label) => { await page.screenshot({ path: `${os.tmpdir()}/nfb-frames/f${String(n++).padStart(2, "0")}.png` }); console.log("frame", n - 1, label); };
   await frame("page");
   await clickFab(page); await sleep(200); await frame("empty panel");
   await page.evaluate(() => { document.getElementById("nfb-host").shadowRoot.getElementById("lim").value = "0"; });

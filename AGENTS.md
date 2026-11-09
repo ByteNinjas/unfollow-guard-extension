@@ -26,7 +26,8 @@ Read them before making changes.
   confirm `npm outdated` prints nothing before pushing.
 - Dependabot (`.github/dependabot.yml`) opens weekly grouped PRs for npm and GitHub Actions into
   `dev`. Treat those as normal PRs: run the tests, then merge.
-- CI (`.github/workflows/ci.yml`) runs `npm ci` + `npm test` on pushes and PRs to `main` and `dev`.
+- CI (`.github/workflows/ci.yml`) runs `npm ci`, `npm run typecheck`, `npm test` and `npm run build`
+  on pushes and PRs to `main` and `dev`.
 - Prefer the standard library over new dependencies. If a dependency is added, it must be the
   latest stable version and justified.
 
@@ -40,7 +41,7 @@ Read them before making changes.
 - **Never rename `NFB`, `nfb_*` storage keys, or `nfb-*` element IDs.** They are the legacy
   namespace kept deliberately for backward compatibility; renaming them orphans every existing
   user's saved scans, keep lists, history and settings. The guard comment at the top of
-  `shared.js` documents this and must remain.
+  `src/shared.ts` documents this and must remain.
 - Existing backups and scans continue to import: do not add validation that rejects data based on
   the old `app` marker.
 - Regenerate screenshots/demo assets from the live UI after branding or UI changes. Demo fixtures
@@ -51,14 +52,17 @@ Read them before making changes.
 - Run the full suite before every commit:
   ```bash
   npm install
+  npm run typecheck
   npm test
   ```
-- Tests are jsdom simulations (no network). Each `tests/*.js` file is standalone and prints
-  `PASS` / `FAIL` lines; `npm test` chains them and fails on the first failing file.
+- Tests are Vitest suites with jsdom simulations (no network). `npm test` first builds the IIFE
+  bundles in `dist/test/` (`scripts/build-test.mjs`), then runs every `tests/**/*.test.ts` file.
 - Add or update tests for every behavior change. Do not delete or weaken tests to get green.
 - When adding a test, follow the existing harness pattern: `JSDOM` with `runScripts: "outside-only"`,
-  a `chrome.storage.local` stub, `w.eval()` of `shared.js`, `i18n.js`, the adapter(s) and
-  `content.js`, then drive the shadow-root UI and assert on DOM/storage.
+  a `chrome.storage.local` stub, `w.eval()` of a built bundle from `dist/test/`, then drive the
+  shadow-root UI and assert on DOM/storage with the `checks()` helper in
+  `tests/helpers/harness.ts`. Bundles are produced from the real TypeScript sources; never
+  reimplement production logic in a test.
 - `scripts/screenshots/shoot.js` renders the docs images from the real extension UI with demo data.
   `make-gif.py` needs Pillow; if it is unavailable, rebuild `docs/demo.gif` with the existing
   ffmpeg fallback (frames in `/tmp/nfb-frames/f*.png`, 900 px wide, 128-color palette, keep the
@@ -66,19 +70,20 @@ Read them before making changes.
 
 ## Architecture notes
 
-- Manifest V3 Chromium extension, no build step to run it: edit files and reload at
-  `chrome://extensions`.
-- `content.js` is the in-page panel UI (shadow DOM, tabs, filters, selection, batch loop,
-  schedule, stats, tour). `shared.js` holds settings/storage/dialog helpers and shared styles.
-  `i18n.js` holds all strings for `en, es, fr, de, pt`; every key must exist in all columns with
+- Manifest V3 Chromium extension written in TypeScript and bundled with Vite + `@crxjs/vite-plugin`.
+  Edit `src/`, run `npm run build`, then reload at `chrome://extensions` (the loadable folder is
+  `dist/chromium/`).
+- `src/content/index.ts` is the in-page panel UI (shadow DOM, tabs, filters, selection, batch loop,
+  schedule, stats, tour). `src/shared.ts` holds settings/storage/dialog helpers and shared styles.
+  `src/i18n.ts` holds all strings for `en, es, fr, de, pt`; every key must exist in all columns with
   matching placeholders.
-- Site support is adapter-based (`instagram.js`, `facebook.js`, `adapters/_template.js`). See
-  `docs/ADDING-A-SITE.md`.
+- Site support is adapter-based (`src/adapters/instagram.ts`, `src/adapters/facebook.ts`,
+  `src/adapters/_template.ts`). See `docs/ADDING-A-SITE.md`.
 - All state is per logged-in account in `chrome.storage.local` under `nfb_<name>_<site>_<accountId>`.
 - Safety rails are the point of the project: daily limits, warm-up, protection rules, delays,
   cool-down, stop after repeated failures. Do not remove or bypass them.
 - Use in-app dialogs (`ask`, `toast`), never native `alert`/`confirm`.
 - The background worker’s `fetch-image` relay is deliberately restricted to CDN picture hosts,
   images only, size-capped, no cookies and no referrer. Never turn it into a general proxy.
-- Version bumps: update `manifest.json`, `package.json`, and the README version badge together;
-  rebuild the lockfile if dependencies changed.
+- Version bumps: update `package.json` (the manifest reads its version from it) and the README
+  version badge together; rebuild the lockfile if dependencies changed.

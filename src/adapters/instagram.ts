@@ -1,5 +1,6 @@
-(() => {
-  const NFB = globalThis.NFB;
+import { NFB } from "../shared";
+import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } from "../types";
+
   const APP_ID = "936619743392459";
   const getCookie = (n) => (document.cookie.split("; ").find((c) => c.startsWith(n + "=")) || "").split("=")[1];
   const hdrs = () => ({
@@ -68,11 +69,11 @@
   };
 
   // fetch with a time limit (a hung request must never freeze a batch); the limit can be shortened by tests
-  function fetchT(url, init = {}, ms) {
+  function fetchT(url: string, init: RequestInit = {}, ms?: number): Promise<Response> {
     const limit = ms || NFB.fetchTimeout || 20000;
     const ctl = new AbortController();
-    let timer;
-    const timeout = new Promise((_, rej) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<Response>((_, rej) => {
       timer = setTimeout(() => { ctl.abort(); const e = new Error("Timed out waiting for Instagram"); e.timeout = true; rej(e); }, limit);
     });
     return Promise.race([fetch(url, { ...init, signal: ctl.signal }), timeout]).finally(() => clearTimeout(timer));
@@ -431,4 +432,3 @@
       return out;
     },   // used by "Re-follow" on the Unfollowed tab
   };
-})();

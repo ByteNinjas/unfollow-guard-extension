@@ -42,10 +42,10 @@
   const origFetch = window.fetch;
   window.fetch = function (input, init) {
     try {
-      const url = typeof input === "string" ? input : (input && input.url) || "";
+      const url = typeof input === "string" ? input : (input && (input as any).url) || "";
       if (WATCH.test(url)) {
         const h = {};
-        new Headers((init && init.headers) || (input && input.headers) || {}).forEach((v, k) => (h[k] = v));
+        new Headers((init && init.headers) || (input && (input as Request).headers) || {}).forEach((v, k) => (h[k] = v));
         harvest(h, init && init.body);
       }
     } catch {}
