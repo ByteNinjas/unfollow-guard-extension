@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unfollow Guard",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "See who doesn't follow you back and unfollow safely, slowly and in small batches. Works with Instagram and Facebook.",
   "permissions": [
     "storage",

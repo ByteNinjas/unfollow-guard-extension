@@ -9,7 +9,7 @@
   const scanKey = K("scan"), listsKey = K("lists"), keepKey = K("keep"), selKey = K("sel"),
         goneKey = K("gone"), histKey = K("hist"), runKey = K("run"), stopKey = K("stop"),
         snapKey = K("snap"), flwKey = K("flw"), coolKey = K("cool"), metaKey = K("meta"), seenKey = K("seen"),
-        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics");
+        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail");
   const allowKey = "allowScan_" + A.id;
   const IS_BETA = !!(NFB.PLATFORMS.find((p) => p.id === A.id) || {}).beta;
 
@@ -60,6 +60,8 @@
     .chip.ok { background: var(--ok-soft); color: var(--green); }
     .chip.warn { background: var(--warn-soft); color: #b45309; }
     .chip.info { background: var(--accent-soft); color: var(--accent); }
+    .chipbtn { border: 0; cursor: pointer; font-family: inherit; }
+    .chipbtn:hover { filter: brightness(.95); }
     .notice { margin: 10px 14px 0; padding: 9px 12px; border-radius: 12px; background: var(--bg2); font-size: 12.5px; line-height: 1.45; color: var(--fg); }
     .notice:empty { display: none; }
     .scan { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 14px; }
@@ -171,7 +173,7 @@
           <div class="stat"><b id="stMutual">–</b><span data-i="st_mutual"></span></div>
           <div class="stat"><b id="stTodo">–</b><span data-i="st_todo"></span></div>
         </div>
-        <div class="chips"><span class="chip" id="chipTime"></span><span class="chip" id="chipCap"></span></div>
+        <div class="chips"><span class="chip" id="chipTime"></span><button class="chip chipbtn" id="chipCap" type="button" data-ti="tip_chipcap"></button></div>
         <div class="notice" id="status" role="status" aria-live="polite"></div>
         <div class="scan">
           <select class="field" id="lim">
@@ -519,6 +521,7 @@
   let coolUntil = 0;          // cool-down after a block (timestamp)
   let safety = NFB.DEFAULTS;  // cool-down, protection, schedule... settings
   let tags = {};              // pk -> {tag, note}
+  let failed = {};            // pk -> reason, for accounts whose unfollow failed (also after the retry)
   let onboarded = true;
   let schedPending = null;    // {cancel} while a scheduled batch counts down
   NFB.shouldStop = () => stop;
@@ -545,6 +548,8 @@
     mutual = fol ? fing.filter((u) => followerSet.has(u.pk) && !histSet.has(u.pk)) : [];
     fans = fol ? fol.filter((u) => !followingSet.has(u.pk)) : [];
   }
+  // Instagram's lists lag a few minutes behind: accounts unfollowed in the last 24 h are hidden if a scan still lists them
+  const recentlyUnfollowed = () => new Set(hist.filter((h) => !h.refollowed && Date.now() - h.at < 864e5).map((h) => h.pk));
 
   // ---------- tabs + list (renders in chunks: big lists stay fast) ----------
   const TABS = [
@@ -696,6 +701,7 @@
     };
 
     if (tab === "todo") {
+      if (failed[u.pk]) { const ft = tagEl(tr("tag_failed"), "warn"); ft.title = failed[u.pk]; row.append(ft); }
       const why = protectReason(u);
       if (why && !(tagOf(u) && why === tagLabel(tagOf(u)))) row.append(tagEl(why, "info"));
       addTagUi();
@@ -720,6 +726,31 @@
       row.append(u.type === "lost" ? tagEl(tr("tag_lost"), "warn") : tagEl(tr("tag_new"), "ok"));
     }
     return { row, cb };
+  }
+
+  // An account that no longer exists (removed, banned, deactivated) leaves the list; it doesn't use up today's limit.
+  async function dropUnavailable(u, why) {
+    users = users.filter((x) => x.pk !== u.pk);
+    selected.delete(u.pk);
+    gone.add(u.pk);
+    delete failed[u.pk];
+    derive();
+    if (tab === "todo") removeFromList(u.pk);
+    await chrome.storage.local.set({ [goneKey]: [...gone], [selKey]: [...selected], [failKey]: failed });
+    log(`⚠ ${u.username} ${why || "is no longer available"}: removed from the list`, u.username);
+    updateChrome();
+  }
+  const withTimeout = (p, ms) => new Promise((res, rej) => {
+    const t = setTimeout(() => rej(Object.assign(new Error("Timed out"), { timeout: true })), ms);
+    p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
+
+  function refreshRow(u) {
+    const old = listEl.querySelector(`.row[data-pk="${esc(u.pk)}"]`);
+    if (!old) return;
+    const r = buildRow(u);
+    old.replaceWith(r.row);
+    if (r.cb) rows.set(u.pk, r);
   }
 
   function appendMore() {
@@ -1092,6 +1123,45 @@
   }
 
 
+  // ---------- daily limit: reset / clear / change ----------
+  async function openLimitDialog() {
+    await refreshCap();
+    const base = capInfo.base || capInfo.cap;
+    const body = document.createElement("div");
+    const info = document.createElement("div");
+    info.textContent = tr("lim_info", { used: capInfo.used, cap: base, at: safety.dayResetTime, t: NFB.fmtHM(NFB.msToMidnight()) });
+    const grid = document.createElement("div");
+    grid.style.cssText = "display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center;margin-top:12px";
+    const field = (label, input) => { const l = document.createElement("label"); l.textContent = label; l.style.color = "var(--fg)"; grid.append(l, input); return input; };
+    const num = (v, min, max) => { const i = document.createElement("input"); i.type = "number"; i.min = min; i.max = max; i.value = v; i.className = "field snum"; return i; };
+    const usedIn = field(tr("lim_used"), num(capInfo.used, 0, 1000));
+    const capIn = field(tr("lim_title"), num(base, 1, 100));
+    const atIn = field(tr("lim_reset_at"), Object.assign(document.createElement("input"), { type: "time", value: safety.dayResetTime || "00:00", className: "field" }));
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px";
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button"; resetBtn.className = "btn sm"; resetBtn.textContent = tr("btn_reset_counter");
+    resetBtn.onclick = () => { usedIn.value = 0; };
+    actions.append(resetBtn);
+    if (coolUntil > Date.now()) {
+      const coolBtn = document.createElement("button");
+      coolBtn.type = "button"; coolBtn.className = "btn sm"; coolBtn.textContent = tr("btn_clear_cool");
+      coolBtn.onclick = async () => { coolUntil = 0; await chrome.storage.local.remove(coolKey); coolBtn.remove(); toast(tr("ts_cool_cleared")); tick(); publishStatus(); };
+      actions.append(coolBtn);
+    }
+    const note = document.createElement("div");
+    note.style.cssText = "margin-top:12px;font-size:12px;color:var(--fg2)";
+    note.textContent = tr("lim_note");
+    body.append(info, grid, actions, note);
+    const ok = await ask({ title: tr("lim_title"), body, confirmText: tr("btn_save"), cancelText: tr("btn_cancel") });
+    if (!ok) return;
+    await NFB.setUsed(dayKey, Math.min(1000, Math.max(0, parseInt(usedIn.value, 10) || 0)));
+    await chrome.storage.local.set({ ["dailyCap_" + A.id]: Math.min(100, Math.max(1, parseInt(capIn.value, 10) || base)), dayResetTime: atIn.value || "00:00" });
+    await refreshCap();
+    toast(tr("ts_limit_saved"));
+  }
+  $("chipCap").onclick = openLimitDialog;
+
   // ---------- scan ----------
   if (!A.supportsStart) $("startwrap").style.display = "none";
   const getOpts = () => ({
@@ -1155,6 +1225,8 @@
     try {
       const res = await A.scan({ setStatus, prev: scanCache, opts });
       scanCache = res.scan;
+      failed = {};
+      chrome.storage.local.remove(failKey);
       lists = mergeLists(lists, res.lists);
       gone = new Set();
       await chrome.storage.local.set({
@@ -1166,14 +1238,16 @@
       await updateSeen(res);
       if (res.complete) await chrome.storage.local.set({ [allowKey]: false });
       const all = res.scan.users || [];
-      users = all.filter((u) => !keep[u.pk]);
-      const hidden = all.length - users.length;
+      const recent = recentlyUnfollowed();
+      users = all.filter((u) => !keep[u.pk] && !recent.has(u.pk));
+      const lag = all.filter((u) => recent.has(u.pk) && !keep[u.pk]).length;
+      const hidden = all.length - users.length - lag;
       const have = new Set(users.map((u) => u.pk));
       selected = new Set([...selected].filter((pk) => have.has(pk)));
       saveSel();
       derive();
       showTab("todo");
-      setStatus(res.message + diffMsg + (hidden ? ` ${hidden} kept account(s) hidden.` : ""));
+      setStatus(res.message + diffMsg + (hidden ? ` ${hidden} kept account(s) hidden.` : "") + (lag ? ` ${lag} account(s) you unfollowed recently are still in Instagram's list (it lags by a few minutes) and were hidden.` : ""));
     } catch (e) {
       setStatus("Error: " + e.message);
     }
@@ -1183,28 +1257,23 @@
 
   // ---------- selection (limited by the daily cap, skips protected accounts) ----------
   const todoFirst = () => { if (tab !== "todo") showTab("todo"); };
-  const selectPks = (pks, wanted) => {
-    selected = new Set(pks.slice(0, maxSel()));
+  const pickable = () => filtered.filter((u) => !protectReason(u));
+  // Selects up to `want` accounts, never more than what is left of today's limit, and explains it when that is fewer than the limit.
+  async function selectBulk(want) {
+    todoFirst();
+    await refreshCap();
+    const pool = pickable();
+    const skipped = filtered.length - pool.length;
+    selected = new Set(pool.slice(0, Math.min(want, maxSel())).map((u) => u.pk));
     syncChecks();
     saveSel();
     updateChrome();
-    if (wanted > maxSel()) toast(capMsg());
-  };
-  const pickable = () => filtered.filter((u) => !protectReason(u));
-  const skippedNote = (n) => { if (n > 0) toast(tr("ts_protected", { n })); };
-  $("selN").onclick = () => {
-    todoFirst();
-    const n = Math.max(1, parseInt($("n").value, 10) || 30);
-    const pool = pickable();
-    selectPks(pool.slice(0, n).map((u) => u.pk), n);
-    skippedNote(filtered.length - pool.length);
-  };
-  $("all").onclick = () => {
-    todoFirst();
-    const pool = pickable();
-    selectPks(pool.map((u) => u.pk), pool.length);
-    skippedNote(filtered.length - pool.length);
-  };
+    const n = selected.size;
+    if (n < Math.min(want, capInfo.cap)) toast(tr("ts_sel_info", { n, cap: capInfo.cap, used: capInfo.used, skipped, avail: pool.length }));
+    else if (skipped > 0) toast(tr("ts_protected", { n: skipped }));
+  }
+  $("selN").onclick = () => selectBulk(Math.max(1, parseInt($("n").value, 10) || 30));
+  $("all").onclick = () => selectBulk(Infinity);
   $("clr").onclick = () => { selected.clear(); syncChecks(); saveSel(); updateChrome(); };
 
   // ---------- progress card ----------
@@ -1236,9 +1305,9 @@
         pct, tone: l.ok ? "ok" : "warn",
       });
     } else if (mode === "open") {
-      banner({ user: u, title: tr("rc_opening", { u: u.username }), sub: tr("rc_sub_n", { i: run.idx + 1, total: run.total }), pct, spin: true });
+      banner({ user: u, title: tr("rc_opening", { u: u.username }), sub: tr(run.retried ? "rc_retry" : "rc_sub_n", { i: run.idx + 1, total: run.queue.length }), pct, spin: true });
     } else {
-      banner({ user: u, title: tr("rc_unfollowing", { u: u.username }), sub: tr("rc_sub_n", { i: run.idx + 1, total: run.total }), pct, spin: true });
+      banner({ user: u, title: tr("rc_unfollowing", { u: u.username }), sub: tr(run.retried ? "rc_retry" : "rc_sub_n", { i: run.idx + 1, total: run.queue.length }), pct, spin: true });
     }
   }
   function finishBanner(msg, run, tone) {
@@ -1313,7 +1382,17 @@
         run = await loadRun();
         if (!run) { endMsg = "Batch ended"; tone = "warn"; break; }
         if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-        if (run.idx >= run.queue.length) { endMsg = tr("rc_finished", { n: run.done }); break; }
+        if (run.idx >= run.queue.length) {
+          const pending = run.retry || [];
+          if (!run.retried && pending.length) {                 // second pass over the accounts that failed
+            run = (await patchRun({ queue: pending, idx: 0, retry: [], retried: true })) || run;
+            log(`Retrying ${pending.length} account(s) that failed`);
+            continue;
+          }
+          endMsg = pending.length ? tr("rc_finished_f", { n: run.done, f: pending.length }) : tr("rc_finished", { n: run.done });
+          if (pending.length) tone = "warn";
+          break;
+        }
         const s0 = await NFB.getSettings();
         const s = run.forceUI ? { ...s0, igMethod: "ui" } : s0;
 
@@ -1349,7 +1428,39 @@
         if (maxSel() <= 0) { endMsg = tr("rc_cap", { n: capInfo.cap }); tone = "warn"; break; }
 
         const q = run.queue[run.idx];
-        const u = users.find((x) => x.pk === q.pk) || q;
+        let u = { ...(users.find((x) => x.pk === q.pk) || {}), ...q };   // the queue entry may carry a newer username
+
+        // Browser-click method: look the account up first. A renamed account is opened under its new name; a removed or
+        // banned one is skipped at once instead of waiting for a profile page that will never load.
+        if (A.resolve && A.navigateTo && A.navigateTo(u, s) && run.navFor !== run.idx) {
+          let rr = {}, pre = null;
+          try { rr = await A.resolve(u, s); } catch (e) { pre = e; }
+          if (pre && pre.fatal) {
+            endMsg = `Stopped: ${pre.message}`;
+            tone = "warn";
+            if (pre.block && s.cooldownHours > 0) {
+              coolUntil = Date.now() + s.cooldownHours * 3600000;
+              await chrome.storage.local.set({ [coolKey]: coolUntil });
+              endMsg += ` Cool-down started: unfollowing is paused for ${s.cooldownHours}h.`;
+            }
+            break;
+          }
+          if (rr.gone) {
+            await dropUnavailable(u);
+            const moreAfter = run.idx + 1 < run.queue.length || (!run.retried && (run.retry || []).length > 0);
+            run = (await patchRun({ idx: run.idx + 1, nextAt: moreAfter ? Date.now() + (NFB.skipDelay != null ? NFB.skipDelay : 1500) : 0 })) || run;
+            continue;
+          }
+          if (rr.username && rr.username !== u.username) {
+            log(`↻ ${u.username} is now @${rr.username}`, u.username);
+            const queue = run.queue.slice();
+            queue[run.idx] = { ...queue[run.idx], username: rr.username };
+            run = (await patchRun({ queue })) || run;
+            const real = users.find((x) => x.pk === u.pk);
+            if (real) real.username = rr.username;
+            u = { ...u, username: rr.username };
+          }
+        }
 
         // Browser-click method: go to the account's profile first (the page reloads and this loop resumes there).
         const target = A.navigateTo ? A.navigateTo(u, s) : null;
@@ -1364,9 +1475,9 @@
         if (target) await sleepStop(NFB.rand(2000, 4000));
         if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
 
-        let ok = false, errMsg = "", fatal = false, blocked = false;
+        let ok = false, errMsg = "", fatal = false, blocked = false, skip = false;
         try {
-          await A.unfollow(u, s);
+          await withTimeout(A.unfollow(u, s), NFB.unfollowTimeout || 90000);   // never wait forever for one account
           ok = true;
           log(`✓ ${u.username} unfollowed`, u.username);
         } catch (e) {
@@ -1380,9 +1491,10 @@
           }
           fatal = !!e.fatal;
           blocked = !!e.block;
+          skip = !!e.skip;
         }
 
-        const fails = ok ? 0 : (run.fails || 0) + 1;
+        const fails = ok ? 0 : skip ? (run.fails || 0) : (run.fails || 0) + 1;   // a missing account isn't a sign the batch is failing
         if (!ok && (fatal || fails >= 3)) {
           run = (await patchRun({ last: { username: u.username, pic: u.pic || "", ok: false } })) || run;
           endMsg = fatal ? `Stopped: ${errMsg}` : `Stopped after 3 failures in a row: ${errMsg}`;
@@ -1402,14 +1514,23 @@
           hist.push({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "", at: Date.now() });
           if (hist.length > 5000) hist = hist.slice(-5000);
           derive();
+          delete failed[u.pk];
           if (tab === "todo") removeFromList(u.pk);
-          await chrome.storage.local.set({ [goneKey]: [...gone], [selKey]: [...selected], [histKey]: hist });
+          await chrome.storage.local.set({ [goneKey]: [...gone], [selKey]: [...selected], [histKey]: hist, [failKey]: failed });
           await refreshCap();
+        } else if (skip) {
+          await dropUnavailable(u);
+        } else {
+          failed[u.pk] = errMsg;                                // stays in the list, marked, and is tried once more after this pass
+          await chrome.storage.local.set({ [failKey]: failed });
+          if (tab === "todo") refreshRow(u);
         }
+        const retry = !ok && !skip ? (run.retry || []).concat({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "" }) : run.retry || [];
         const nextIdx = run.idx + 1;
-        const nextAt = nextIdx < run.queue.length ? Date.now() + Math.round(NFB.rand(s.minDelay, s.maxDelay)) * 1000 : 0;
+        const more = nextIdx < run.queue.length || (!run.retried && retry.length > 0);
+        const nextAt = more ? Date.now() + Math.round(NFB.rand(s.minDelay, s.maxDelay)) * 1000 : 0;
         run = (await patchRun({
-          idx: nextIdx, done: run.done + (ok ? 1 : 0), fails, nextAt,
+          idx: nextIdx, done: run.done + (ok ? 1 : 0), fails, nextAt, retry,
           last: { username: u.username, pic: u.pic || "", ok },
         })) || run;
       }
@@ -1629,7 +1750,7 @@
     if (ch.lang) { NFB.setLang(ch.lang.newValue); applyLang(); showTheme(theme); refreshGear(); refreshButtons(); renderList(); }
     if (ch.position || ch.draggable || ch["fabPos_" + A.id]) loadCfg();
     if (ch["dailyCap_" + A.id] || ch["nfb_daily_" + dayKey] || ch["nfb_days_" + dayKey] || ch.cooldownHours || ch.activeEnabled || ch.activeFrom || ch.activeTo ||
-        ch.warmupEnabled || ch.warmupStart || ch.warmupStep || ch.scheduleEnabled || ch.scheduleTime || ch.scheduleCount) refreshCap();
+        ch.warmupEnabled || ch.warmupStart || ch.warmupStep || ch.scheduleEnabled || ch.scheduleTime || ch.scheduleCount || ch.dayResetTime) refreshCap();
     if (ch.protectVerified || ch.protectRecentDays || ch.protectPrivate || ch.protectTagged || ch.protectPattern) {
       refreshCap().then(() => { if (tab === "todo") renderList(); });
     }
@@ -1651,7 +1772,7 @@
     applyEnabled(!!s.enabled);
     await loadCfg();
     await NFB.bindSettings(shadow, modalHost);
-    const o = await chrome.storage.local.get([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, "nfb_opts", "nfb_onboarded"]);
+    const o = await chrome.storage.local.get([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
     scanCache = o[scanKey] || null;
     lists = o[listsKey] || null;
     keep = o[keepKey] || {};
@@ -1660,6 +1781,7 @@
     flw = o[flwKey] || [];
     seen = o[seenKey] || seen;
     tags = o[tagsKey] || {};
+    failed = o[failKey] || {};
     picFresh = o[picsKey] || {};
     onboarded = !!o.nfb_onboarded;
     coolUntil = o[coolKey] || 0;
@@ -1668,7 +1790,8 @@
     if (A.followerDiff && !o[snapKey] && lists && Array.isArray(lists.followers) && lists.followersComplete !== false) {
       await chrome.storage.local.set({ [snapKey]: { at: (scanCache && scanCache.at) || Date.now(), users: lists.followers.map(slim) } });
     }
-    users = ((scanCache && scanCache.users) || []).filter((u) => !keep[u.pk] && !gone.has(u.pk));
+    const recentGone = recentlyUnfollowed();
+    users = ((scanCache && scanCache.users) || []).filter((u) => !keep[u.pk] && !gone.has(u.pk) && !recentGone.has(u.pk));
     const have = new Set(users.map((u) => u.pk));
     selected = new Set((o[selKey] || []).filter((pk) => have.has(pk)));
     if (o.nfb_opts) { $("lim").value = o.nfb_opts.lim; $("start").value = o.nfb_opts.start; }

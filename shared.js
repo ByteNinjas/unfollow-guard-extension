@@ -24,6 +24,7 @@
     draggable: true,
     igMethod: "api",
     cooldownHours: 6,
+    dayResetTime: "00:00",
     activeEnabled: false,
     activeFrom: "09:00",
     activeTo: "22:00",
@@ -45,10 +46,13 @@
   };
   NFB.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   NFB.rand = (a, b) => a + Math.random() * (b - a);
-  NFB.today = () => new Date().toLocaleDateString("en-CA");
-  NFB.msToMidnight = () => {
+  // The daily counter starts over at `dayResetTime` (setting, default midnight). NFB.resetMin is that time in minutes.
+  NFB.resetMin = 0;
+  NFB.today = () => new Date(Date.now() - NFB.resetMin * 60000).toLocaleDateString("en-CA");
+  NFB.msToMidnight = () => { // time until the next reset (the name is historical)
     const n = new Date();
-    return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime() - n.getTime();
+    const t = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, NFB.resetMin, 0, 0).getTime();
+    return (t > n.getTime() ? t : t + 86400000) - n.getTime();
   };
   NFB.fmtClock = (sec) => {
     sec = Math.max(0, Math.ceil(sec));
@@ -79,12 +83,20 @@
     return diff * 60000;
   };
 
-  NFB.getSettings = async () => ({ ...NFB.DEFAULTS, ...(await chrome.storage.local.get(Object.keys(NFB.DEFAULTS))) });
+  NFB.getSettings = async () => {
+    const s = { ...NFB.DEFAULTS, ...(await chrome.storage.local.get(Object.keys(NFB.DEFAULTS))) };
+    NFB.resetMin = toMin(s.dayResetTime);
+    return s;
+  };
 
   NFB.getDaily = async (p) => {
     const o = await chrome.storage.local.get("nfb_daily_" + p);
     const d = o["nfb_daily_" + p];
     return d && d.date === NFB.today() ? d : { date: NFB.today(), count: 0 };
+  };
+  // Sets today's counter to an exact number (used by "reset counter" in the panel).
+  NFB.setUsed = async (p, n) => {
+    await chrome.storage.local.set({ ["nfb_daily_" + p]: { date: NFB.today(), count: Math.max(0, n | 0) } });
   };
   NFB.bumpDaily = async (p) => {
     const d = await NFB.getDaily(p);
@@ -321,6 +333,8 @@
       <div class="stitle">Safety</div>
       ${row("Cool-down after a block", "If Instagram or Facebook blocks or rate-limits an action, unfollowing pauses for this many hours (0 = off).",
         `<input class="field snum" type="number" id="cooldownHours" min="0" max="72">`)}
+      ${row("Daily counter resets at", "When today's unfollow counter starts over (your local time). It only changes this extension's counter; Instagram applies its own limits.",
+        `<input class="field" type="time" id="dayResetTime">`)}
       ${row("Only unfollow during active hours", "A batch waits until the window opens (your local time). The tab has to stay open.", sw("activeEnabled"))}
       ${row("Active hours", "From and to",
         `<div style="display:flex;gap:6px;align-items:center"><input class="field" type="time" id="activeFrom"> – <input class="field" type="time" id="activeTo"></div>`)}
@@ -394,6 +408,7 @@
       $("minDelay").value = s.minDelay;
       $("maxDelay").value = s.maxDelay;
       $("cooldownHours").value = s.cooldownHours;
+      $("dayResetTime").value = s.dayResetTime;
       $("activeEnabled").checked = !!s.activeEnabled;
       $("activeFrom").value = s.activeFrom;
       $("activeTo").value = s.activeTo;
@@ -431,6 +446,7 @@
       upd.minDelay = mn;
       upd.maxDelay = mx;
       upd.cooldownHours = Math.min(72, Math.max(0, parseInt($("cooldownHours").value, 10) || 0));
+      upd.dayResetTime = $("dayResetTime").value || "00:00";
       upd.activeEnabled = $("activeEnabled").checked;
       upd.activeFrom = $("activeFrom").value || "09:00";
       upd.activeTo = $("activeTo").value || "22:00";
