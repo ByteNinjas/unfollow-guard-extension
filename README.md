@@ -146,7 +146,7 @@ Lists render in chunks, so even thousands of rows stay smooth. Every tab has sea
 The extension isn't on a store; you load it as an unpacked extension. It works in **Chrome, Brave, Edge, Opera and other Chromium browsers (version 111 or newer)**.
 
 1. **Download** this repository (or the release zip) and **unzip** it somewhere permanent. Chromium remembers the folder, so don't move or delete it afterwards.
-2. Build the extension once (Node 26 LTS or newer): `npm install && npm run build`. This writes the loadable extension to `dist/chromium/`.
+2. Install Node 26 LTS or newer and pnpm 12+ (`npm install -g pnpm@latest`), then build the extension once: `pnpm install && pnpm run build`. This writes the loadable extension to `dist/chromium/`.
 3. Open `chrome://extensions` (or `brave://extensions`, `edge://extensions`).
 4. Turn on **Developer mode** (top-right).
 5. Click **Load unpacked** and select the **`dist/chromium`** folder.
@@ -154,14 +154,16 @@ The extension isn't on a store; you load it as an unpacked extension. It works i
 7. Open [instagram.com](https://www.instagram.com) or [facebook.com](https://www.facebook.com) and **refresh the tab**. A blue **Unfollow Guard** button appears in a corner.
 
 > [!NOTE]
-> `npm run build` produces both `dist/unfollow-guard-chromium.zip` and the experimental Firefox zip. Rebuild after pulling changes; the extension is written in TypeScript and bundled with Vite.
+> `pnpm run build` produces both `dist/unfollow-guard-chromium.zip` and the experimental Firefox zip. Rebuild after pulling changes; the extension is written in TypeScript and bundled with Vite.
 
 > [!TIP]
 > **Updating:** unzip the new version over the old folder, click the ↻ reload icon on the extension card, then **refresh your Instagram/Facebook tab**. Your saved scans, kept accounts and history stay in place.
+>
+> **Updating from 1.8.0 or older:** the loadable folder moved from the repository root to `dist/chromium/`. Export your kept list (Backup) and any CSV data first, remove the old extension entry, then load `dist/chromium/`. The new folder has a different extension ID, so browser storage is not carried over automatically.
 
 ### 🦊 Firefox (experimental)
 
-`npm run build` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **140+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
+`pnpm run build` writes `dist/unfollow-guard-firefox.zip`, a package whose manifest uses a background script instead of a service worker and a Gecko add-on id (Firefox **140+**). Load it from `about:debugging` → *This Firefox* → *Load Temporary Add-on*. **This build has not been tested**; please report what you find.
 
 ## 🧭 Quick start
 
@@ -444,21 +446,21 @@ Each site is an **adapter** that exposes the same small interface (`scan`, `unfo
 
 ## 🛠 Development
 
-The extension is written in **TypeScript** and bundled with **Vite** + `@crxjs/vite-plugin`; tests run on **Vitest** with jsdom. Node 26 LTS or newer.
+The extension is written in **TypeScript** and bundled with **Vite** + `@crxjs/vite-plugin`; tests run on **Vitest** with jsdom. Node 26 LTS or newer and pnpm 12+ (the exact pnpm version is pinned in `packageManager`).
 
 ```bash
-npm install          # install the toolchain
-npm run dev          # Vite dev server with HMR (load dist/chromium or use the CRXJS workflow)
-npm run typecheck    # tsc --noEmit
-npm test             # builds the test bundles, then runs every Vitest suite (simulated browser, no network)
-npm run build        # dist/chromium/ + dist/unfollow-guard-chromium.zip + dist/unfollow-guard-firefox.zip
-npm run screenshots  # re-renders docs/screenshots and docs/demo.gif (needs pillow: pip install pillow)
+pnpm install         # install the toolchain
+pnpm run dev         # Vite dev server with HMR (load dist/chromium or use the CRXJS workflow)
+pnpm run typecheck   # tsc --noEmit
+pnpm test            # builds the test bundles, then runs every Vitest suite (simulated browser, no network)
+pnpm run build       # dist/chromium/ + dist/unfollow-guard-chromium.zip + dist/unfollow-guard-firefox.zip
+pnpm run screenshots # re-renders docs/screenshots and docs/demo.gif (needs pillow: pip install pillow)
 ```
 
-After changing source files, rebuild (`npm run build`) and click ↻ on the extension card in `chrome://extensions`, then refresh the Instagram/Facebook tab.
+After changing source files, rebuild (`pnpm run build`) and click ↻ on the extension card in `chrome://extensions`, then refresh the Instagram/Facebook tab.
 
 Tips:
-- **Tooling policy:** every package and CI action stays on the latest stable release. Dependabot opens weekly grouped PRs into `dev` for npm and GitHub Actions; CI runs the latest Node LTS. Do not pin older versions.
+- **Tooling policy:** every package, runtime and CI action stays on the latest stable release. Dependabot opens weekly grouped PRs into `dev` for pnpm dependencies and GitHub Actions; CI runs the latest Node LTS. Do not pin older versions.
 - Console messages are prefixed with `[Unfollow Guard]`.
 - All data lives in `chrome.storage.local`, under keys like `nfb_<name>_<site>_<accountId>`. Inspect it from the extension's service-worker console with `chrome.storage.local.get(null, console.log)`.
 - To add a language, add a column to `ROWS` in `src/i18n.ts` (a test checks that every key exists in every language and that placeholders match).
@@ -487,7 +489,7 @@ Tips:
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first to discuss what you'd like to change. Keep the guard rails (daily limit, delays, stop-on-block) intact; they are the point of the project. Please run `npm run typecheck && npm test` before opening a pull request.
+Issues and pull requests are welcome. For larger changes, please open an issue first to discuss what you'd like to change. Keep the guard rails (daily limit, delays, stop-on-block) intact; they are the point of the project. Please run `pnpm run typecheck && pnpm test` before opening a pull request.
 
 ## ⚠️ Disclaimer
 

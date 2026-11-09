@@ -5,7 +5,7 @@
   dist/firefox/   + unfollow-guard-firefox.zip    (EXPERIMENTAL, untested: Firefox 140+)
 
 Usage:  python3 scripts/build.py
-Run `npm run build` instead: it builds the Vite output and the standalone
+Run `pnpm run build` instead: it builds the Vite output and the standalone
 test/Firefox bundles first. The Firefox package differs in its manifest and
 uses the classic IIFE bundles (Firefox has no MV3 service workers).
 """
@@ -31,7 +31,7 @@ def zip_dir(src: pathlib.Path, out: pathlib.Path) -> None:
 
 def main() -> None:
     if not (CHROMIUM / "manifest.json").exists():
-        raise SystemExit("dist/chromium is missing; run `npm run build` (Vite) first")
+        raise SystemExit("dist/chromium is missing; run `pnpm run build` (Vite) first")
     if not (TEST / "background.js").exists() or not (TEST / "content.js").exists():
         raise SystemExit("dist/test is missing; run `node scripts/build-test.mjs` first")
 

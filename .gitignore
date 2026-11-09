@@ -18,8 +18,10 @@ yarn-error.log*
 
 # Dependencies
 node_modules/
-# NOTE: package-lock.json is intentionally COMMITTED (needed for reproducible
-# `npm ci` in CI). Only alternative-manager lockfiles are ignored.
+# NOTE: pnpm-lock.yaml is intentionally COMMITTED (needed for reproducible
+# `pnpm install --frozen-lockfile` in CI). Only other managers' lockfiles are ignored.
+package-lock.json
+npm-shrinkwrap.json
 yarn.lock
 bun.lockb
 
