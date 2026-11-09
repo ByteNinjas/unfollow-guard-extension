@@ -67,6 +67,17 @@
     return h;
   };
 
+  // fetch with a time limit (a hung request must never freeze a batch); the limit can be shortened by tests
+  function fetchT(url, init = {}, ms) {
+    const limit = ms || NFB.fetchTimeout || 20000;
+    const ctl = new AbortController();
+    let timer;
+    const timeout = new Promise((_, rej) => {
+      timer = setTimeout(() => { ctl.abort(); const e = new Error("Timed out waiting for Instagram"); e.timeout = true; rej(e); }, limit);
+    });
+    return Promise.race([fetch(url, { ...init, signal: ctl.signal }), timeout]).finally(() => clearTimeout(timer));
+  }
+
   // max = 0 means "everything"; otherwise stop as soon as `max` accounts are fetched.
   async function fetchList(kind, uid, onProgress, max = 0) {
     const out = [];
@@ -74,7 +85,7 @@
     while (true) {
       const count = max ? Math.min(100, max - out.length) : 100;
       const url = `/api/v1/friendships/${uid}/${kind}/?count=${count}` + (maxId ? `&max_id=${maxId}` : "");
-      const r = await fetch(url, { headers: hdrs(), credentials: "include" });
+      const r = await fetchT(url, { headers: hdrs(), credentials: "include" });
       if (!r.ok) throw new Error(`Fetching ${kind} failed (HTTP ${r.status}). Wait a while before retrying.`);
       const j = await r.json();
       out.push(...(j.users || []));
@@ -86,7 +97,32 @@
     return max ? out.slice(0, max) : out;
   }
 
+  const GONE_RE = /user_not_found|not found|does not exist|doesn't exist|isn't available|is not available|deactivated|unavailable/i;
+
+  // Looks an account up by its id: its current username, or { gone: true } if it was removed, banned or deactivated.
+  // Anything unclear returns an empty object (unknown). Limits and blocks throw an error with .fatal set, like the other calls.
+  async function resolveAccount(pk) {
+    let r;
+    try { r = await fetchT(`/api/v1/users/${pk}/info/`, { headers: hdrs(), credentials: "include" }); } catch { return {}; }
+    if ([401, 403, 429].includes(r.status)) { const e = new Error("HTTP " + r.status); e.fatal = true; e.block = r.status === 429; throw e; }
+    let j = null;
+    try { j = await r.json(); } catch {}
+    const text = j ? JSON.stringify(j) : "";
+    if (r.status === 404 || ((r.status === 400 || (j && j.status === "fail")) && GONE_RE.test(text))) return { gone: true };
+    if (r.ok && j && j.user) return { username: j.user.username, full_name: j.user.full_name || "", pic: j.user.profile_pic_url || "" };
+    return {};
+  }
+
   const BLOCK_RE = /feedback_required|checkpoint|spam|wait a few minutes|try again later|temporarily|action blocked|we restrict/i;
+
+  // true if the account is (or may still be) followed; used to double-check an unfollow before treating it as failed
+  async function stillFollowing(pk) {
+    try {
+      const r = await fetchT(`/api/v1/friendships/show/${pk}/`, { headers: hdrs(), credentials: "include" });
+      if (!r.ok) return true;
+      return !!(await r.json()).following;
+    } catch { return true; }
+  }
 
   async function friendshipApi(kind, u) {
     const dtsg = getDtsg();
@@ -96,7 +132,7 @@
       throw err;
     }
     const lang = (document.documentElement.lang || "en").split("-")[0] || "en";
-    const r = await fetch(`/api/v1/friendships/${kind}/${u.pk}/?hl=${lang}`, {
+    const r = await fetchT(`/api/v1/friendships/${kind}/${u.pk}/?hl=${lang}`, {
       method: "POST",
       headers: unfollowHeaders(),
       credentials: "include",
@@ -121,11 +157,19 @@
       const err = new Error(`HTTP ${r.status}${msg ? " – " + msg : ""}`);
       err.block = r.status === 429 || BLOCK_RE.test(text);                 // blocked / rate-limited: starts a cool-down
       err.fatal = err.block || [401, 403].includes(r.status) || /login_required/i.test(text);
+      // the account itself is gone (deleted, deactivated): it can never be unfollowed, so it is dropped from the list
+      err.skip = kind === "destroy" && !err.fatal && (r.status === 404 || GONE_RE.test(text));
+      // another client error with no explanation: ask Instagram whether the account still exists
+      if (kind === "destroy" && !err.fatal && !err.skip && r.status >= 400 && r.status < 500) {
+        try { err.skip = !!(await resolveAccount(u.pk)).gone; }
+        catch (e2) { if (e2.fatal) { err.fatal = true; err.block = !!e2.block; } }
+      }
       throw err;
     }
     const fs = j.friendship_status;
     if (kind === "destroy" && fs && fs.following === true) {
-      throw new Error("Instagram accepted the request but you still follow this account");
+      await NFB.sleep(1500);
+      if (await stillFollowing(u.pk)) throw new Error("Instagram accepted the request but you still follow this account");
     }
     if (kind === "create" && fs && fs.following === false && !fs.outgoing_request) {
       throw new Error("Instagram accepted the request but you don't follow this account");
@@ -188,9 +232,19 @@
   };
   const BLOCKED = /try again later|action blocked|we restrict certain activity|temporarily blocked/i;
 
+  // The "Sorry, this page isn't available" screen (removed, banned or renamed account), recognised at once instead of
+  // waiting 30 s for buttons that will never appear.
+  const PAGE_GONE = /isn['’]t available|is not available|may be broken|no est[aá] disponible|n['’]est pas disponible|nicht verf[uü]gbar|n[aã]o est[aá] dispon[ií]vel/i;
+  const pageGone = () => !document.querySelector("header") && PAGE_GONE.test(((document.body && document.body.innerText) || "").slice(0, 4000));
+
   async function unfollowViaUI(u, s) {
     const L = labelSet(s);
-    const head = await waitFor(() => profileHeader(u), 15000);
+    const head = await waitFor(() => profileHeader(u) || (pageGone() ? "gone" : null), 15000);
+    if (head === "gone") {
+      const err = new Error(`${u.username}: this profile isn't available (the account was removed, banned or renamed)`);
+      err.skip = true;
+      throw err;
+    }
     if (!head) throw new Error(`The profile page of ${u.username} didn't load`);
     const rel = await waitFor(() => {
       const h = profileHeader(u);
@@ -217,6 +271,7 @@
       return h && h.querySelector('button, [role="button"]') && !btnWithText(h, L.fol);
     }, 10000);
     if (!done) {
+      if (u.pk && !(await stillFollowing(u.pk))) return;       // the button didn't update, but the unfollow did happen
       const dlg = [...document.querySelectorAll('[role="dialog"]')].map((d) => d.textContent || "").join(" ");
       if (BLOCKED.test(dlg)) {
         const err = new Error("Instagram is blocking this action right now: " + dlg.slice(0, 120));
@@ -230,7 +285,7 @@
 
   async function getCounts(uid) {
     try {
-      const r = await fetch(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
+      const r = await fetchT(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
       if (!r.ok) return null;
       const j = await r.json();
       return { followers: j.user.follower_count, following: j.user.following_count, username: j.user.username || "" };
@@ -238,7 +293,7 @@
   }
 
   async function followsYou(pk) {
-    const r = await fetch(`/api/v1/friendships/show/${pk}/`, { headers: hdrs(), credentials: "include" });
+    const r = await fetchT(`/api/v1/friendships/show/${pk}/`, { headers: hdrs(), credentials: "include" });
     if (!r.ok) throw new Error(`Checking a profile failed (HTTP ${r.status}). Wait a while before retrying.`);
     const j = await r.json();
     return !!j.followed_by;
@@ -333,12 +388,14 @@
     unfollow: (u, s) => (s && s.igMethod === "ui" ? unfollowViaUI(u, s) : unfollowViaApi(u)),
     // A fresh picture link for one account (the saved links expire after a few days).
     async refreshPic(u) {
-      const r = await fetch(`/api/v1/users/${u.pk}/info/`, { headers: hdrs(), credentials: "include" });
+      const r = await fetchT(`/api/v1/users/${u.pk}/info/`, { headers: hdrs(), credentials: "include" });
       if (r.status === 429 || r.status === 403 || r.status === 401) { const e = new Error("HTTP " + r.status); e.fatal = true; throw e; }
       if (!r.ok) return null;
       const j = await r.json();
       return (j.user && j.user.profile_pic_url) || null;
     },
+    // Used before the browser-click method opens a profile: the current username, or { gone: true }.
+    resolve: (u) => resolveAccount(u.pk),
     follow: (u) => friendshipApi("create", u),
 
     // Self-check: reports what the extension can currently see on this page (shown in the panel's log area).
@@ -355,7 +412,7 @@
       add(got.length >= 2 ? true : got.length ? null : false, "Headers copied from the site", got.length ? got.join(", ") : "none yet: scroll or open a profile, then run again");
       if (uid) {
         try {
-          const r = await fetch(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
+          const r = await fetchT(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
           add(r.ok, "Instagram API reachable", "HTTP " + r.status);
         } catch (e) { add(false, "Instagram API reachable", e.message); }
       }

@@ -1,17 +1,20 @@
 {
   "name": "unfollow-guard",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "private": true,
   "description": "Unfollow Guard: a Chromium extension to see who doesn't follow you back on Instagram & Facebook and unfollow them safely.",
   "license": "MIT",
+  "engines": {
+    "node": ">=26.0.0"
+  },
   "scripts": {
-    "test": "node tests/features.js && node tests/features2.js && node tests/features3.js && node tests/avatars.js && node tests/adapter-template.js && node tests/ui-labels.js && node tests/popup.js && node tests/reenable.js",
+    "test": "node tests/features.js && node tests/features2.js && node tests/features3.js && node tests/limits.js && node tests/gone-accounts.js && node tests/avatars.js && node tests/adapter-template.js && node tests/ui-labels.js && node tests/popup.js && node tests/reenable.js",
     "build": "python3 scripts/build.py",
     "screenshots": "node scripts/screenshots/shoot.js && python3 scripts/screenshots/make-gif.py"
   },
   "devDependencies": {
-    "@sparticuz/chromium": "^138.0.0",
-    "jsdom": "^26.0.0",
-    "puppeteer-core": "^24.0.0"
+    "@sparticuz/chromium": "^153.0.0",
+    "jsdom": "^31.0.0",
+    "puppeteer-core": "^25.16.0"
   }
 }
