@@ -1,7 +1,10 @@
+import { NFB } from "../shared";
+import "../i18n";
+import "../adapters";
+
 (() => {
   if (document.getElementById("nfb-host")) return;
-  const NFB = globalThis.NFB;
-  const A = Object.values(NFB.adapters).find((a) => a.match());
+  const A = Object.values(NFB.adapters).find((a: any) => a.match()) as any;
   if (!A) return;
   const ACCT = String((A.accountId && A.accountId()) || "default"); // everything below is stored per logged-in account
   const dayKey = `${A.id}_${ACCT}`;
@@ -239,7 +242,7 @@
   document.body.append(host);
 
   const $ = (id) => shadow.getElementById(id);
-  const tr = (k, v) => NFB.t(k, v);
+  const tr = (k: string, v?: Record<string, unknown>) => NFB.t(k, v);
   NFB.watchTheme($("app"));
   const panel = $("panel"), listEl = $("list"), modalHost = $("modalhost");
   const scanBtn = $("scan"), delBtn = $("del"), keepBtn = $("keepSel"), stopBtn = $("runstop");
@@ -260,7 +263,7 @@
 
   const setStatus = (text) => ($("status").textContent = text || "");
   // toast with an optional action button (e.g. Undo)
-  const toast = (msg, action) => {
+  const toast = (msg, action?) => {
     const d = document.createElement("div");
     d.className = "toast";
     d.textContent = msg;
@@ -278,7 +281,7 @@
   // Activity log. `name` is kept separately so a shared debug report can hide usernames.
   const logEntries = [];
   const logBox = $("log");
-  const log = (text, name) => {
+  const log = (text, name?) => {
     logEntries.push({ at: Date.now(), text, name: name || "" });
     if (logEntries.length > 200) logEntries.shift();
     const d = document.createElement("div");
@@ -302,7 +305,7 @@
   // privacy shield. A picture is therefore loaded in steps: directly, then through the extension's background
   // worker, then (Instagram) with a freshly requested link. Only if all fail is a letter shown.
   const picCache = new Map();       // url -> data URL, this session
-  let picFresh = {};                // pk -> refreshed url (saved)
+  let picFresh: Record<string, any> = {};                // pk -> refreshed url (saved)
   const expiredUrl = (url) => { const m = /[?&]oe=([0-9a-f]+)/i.exec(url || ""); return !!m && parseInt(m[1], 16) * 1000 < Date.now(); };
   const loadImg = (img, src) => new Promise((res) => {
     const timer = setTimeout(() => res(false), 8000);
@@ -451,7 +454,7 @@
     panel.style.left = x + "px";
     panel.style.top = y + "px";
   }
-  function place(override) {
+  function place(override?) {
     const f = override || fabXY();
     fab.style.left = f.x + "px";
     fab.style.top = f.y + "px";
@@ -460,7 +463,7 @@
   async function loadCfg() {
     const s = await NFB.getSettings();
     cfg = { position: s.position, draggable: !!s.draggable };
-    const o = await chrome.storage.local.get("fabPos_" + A.id);
+    const o = await chrome.storage.local.get<Record<string, any>>("fabPos_" + A.id);
     custom = o["fabPos_" + A.id] || null;
     fab.classList.toggle("drag", cfg.draggable);
     place();
@@ -504,24 +507,24 @@
   // ---------- state ----------
   // Big data (scan, lists) is read once and cached; small data (keep, gone, history, selection, tags) is saved
   // separately, so ticking, keeping and unfollowing never rewrite the big lists.
-  let scanCache = null;       // last saved scan (users = non-followers)
-  let lists = null;           // {followers, following, followingComplete}
-  let users = [];             // non-followers still to decide on
-  let keep = {};              // pk -> user kept
-  let gone = new Set();       // unfollowed since the last scan
-  let hist = [];              // unfollow history [{pk, username, full_name, pic, at}]
+  let scanCache: any = null;       // last saved scan (users = non-followers)
+  let lists: any = null;           // {followers, following, followingComplete}
+  let users: any[] = [];             // non-followers still to decide on
+  let keep: Record<string, any> = {};              // pk -> user kept
+  let gone = new Set<any>();       // unfollowed since the last scan
+  let hist: any[] = [];              // unfollow history [{pk, username, full_name, pic, at}]
   let selected = new Set();
   let followerSet = new Set(), followingSet = new Set(), histSet = new Set(), mutual = [], fans = [];
-  let seen = { complete: false, m: {} }; // when the extension first saw each account you follow (0 = already followed before)
+  let seen: any = { complete: false, m: {} }; // when the extension first saw each account you follow (0 = already followed before)
   let tab = "todo", query = "", fltr = "all", srt = "default";
-  let capInfo = { cap: 40, used: 0 };
+  let capInfo: any = { cap: 40, used: 0 };
   let scanning = false, unfollowing = false, stop = false, enabled = true;
   let runNextAt = 0;
-  let flw = [];               // follower changes between scans [{pk, username, full_name, pic, type: "lost"|"new", at}]
+  let flw: any[] = [];               // follower changes between scans [{pk, username, full_name, pic, type: "lost"|"new", at}]
   let coolUntil = 0;          // cool-down after a block (timestamp)
   let safety = NFB.DEFAULTS;  // cool-down, protection, schedule... settings
-  let tags = {};              // pk -> {tag, note}
-  let failed = {};            // pk -> reason, for accounts whose unfollow failed (also after the retry)
+  let tags: Record<string, any> = {};              // pk -> {tag, note}
+  let failed: Record<string, any> = {};            // pk -> reason, for accounts whose unfollow failed (also after the retry)
   let onboarded = true;
   let schedPending = null;    // {cancel} while a scheduled batch counts down
   NFB.shouldStop = () => stop;
@@ -729,7 +732,7 @@
   }
 
   // An account that no longer exists (removed, banned, deactivated) leaves the list; it doesn't use up today's limit.
-  async function dropUnavailable(u, why) {
+  async function dropUnavailable(u, why?) {
     users = users.filter((x) => x.pk !== u.pk);
     selected.delete(u.pk);
     gone.add(u.pk);
@@ -945,7 +948,7 @@
 
   // ---------- keep list (changes rows in place: no re-render, no flicker) ----------
   const slimKeep = (u) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "", verified: !!u.verified, private: u.private, noPic: u.noPic });
-  function keepUsers(pks, quiet) {
+  function keepUsers(pks, quiet?) {
     let n = 0;
     const did = [];
     pks.forEach((pk) => {
@@ -964,7 +967,7 @@
     updateChrome();
     if (!quiet) toast(tr("ts_kept", { n }), { label: tr("btn_undo"), fn: () => unkeepUsers(did, true) });
   }
-  function unkeepUsers(pks, quiet) {
+  function unkeepUsers(pks, quiet?) {
     let n = 0;
     pks.forEach((pk) => {
       const u = keep[pk];
@@ -1112,7 +1115,7 @@
       const col = document.createElement("div");
       col.className = "bcol";
       col.title = `${d.toLocaleDateString()}: ${counts[i]}`;
-      const n = document.createElement("span"); n.className = "bn"; n.textContent = counts[i] || "";
+      const n = document.createElement("span"); n.className = "bn"; n.textContent = String(counts[i] || "");
       const bar = document.createElement("i"); bar.style.height = Math.max(counts[i] ? 4 : 2, (counts[i] / max) * 70) + "px";
       const lab = document.createElement("span"); lab.className = "bl"; lab.textContent = d.getDate();
       col.append(n, bar, lab);
@@ -1195,7 +1198,7 @@
     if (!A.followerDiff || !L || !Array.isArray(L.followers)) return "";
     if (L.followersComplete === false) return " Your followers list looked incomplete, so follower changes weren't recorded this time.";
     const cur = L.followers.map(slim);
-    const snap = (await chrome.storage.local.get(snapKey))[snapKey];
+    const snap = (await chrome.storage.local.get<Record<string, any>>(snapKey))[snapKey];
     let msg = " Follower baseline saved: future scans will show who unfollowed you.";
     if (snap && snap.users && snap.users.length) {
       const curSet = new Set(cur.map((u) => u.pk)), oldSet = new Set(snap.users.map((u) => u.pk));
@@ -1278,7 +1281,7 @@
 
   // ---------- progress card ----------
   let rcUser = null, hideT;
-  function banner({ user, title, sub, pct, tone, spin }) {
+  function banner({ user, title, sub, pct, tone, spin }: any) {
     clearTimeout(hideT);
     $("runcard").style.display = "block";
     if (!rcUser || !user || rcUser.username !== user.username) {
@@ -1294,7 +1297,7 @@
     b.className = "rc-badge " + (spin ? "spin" : tone || "");
     b.textContent = spin ? "" : tone === "ok" ? "✓" : tone === "warn" ? "!" : "";
   }
-  function drawRun(run, mode, u) {
+  function drawRun(run, mode, u?) {
     const pct = run.total ? (run.done / run.total) * 100 : 0;
     if (mode === "wait" && run.last) {
       const l = run.last;
@@ -1331,7 +1334,7 @@
     } catch { return "x"; }
   })();
   const STALE_MS = 5 * 60 * 1000;
-  const loadRun = async () => (await chrome.storage.local.get(runKey))[runKey] || null;
+  const loadRun = async () => (await chrome.storage.local.get<Record<string, any>>(runKey))[runKey] || null;
   const saveRun = (r) => { r.beat = Date.now(); return chrome.storage.local.set({ [runKey]: r }); };
   // only this loop writes the run; Stop uses its own key, so nothing can be overwritten
   const patchRun = async (patch) => {
@@ -1372,7 +1375,7 @@
     if (unfollowing) return;
     let run = await loadRun();
     if (!run || run.owner !== OWNER) return;
-    stop = !!(await chrome.storage.local.get(stopKey))[stopKey];
+    stop = !!(await chrome.storage.local.get<Record<string, any>>(stopKey))[stopKey];
     setRunning(true);
     if (run.last && run.nextAt) drawRun(run, "wait");
     let endMsg = "", tone = "ok";
@@ -1433,7 +1436,7 @@
         // Browser-click method: look the account up first. A renamed account is opened under its new name; a removed or
         // banned one is skipped at once instead of waiting for a profile page that will never load.
         if (A.resolve && A.navigateTo && A.navigateTo(u, s) && run.navFor !== run.idx) {
-          let rr = {}, pre = null;
+          let rr: any = {}, pre: any = null;
           try { rr = await A.resolve(u, s); } catch (e) { pre = e; }
           if (pre && pre.fatal) {
             endMsg = `Stopped: ${pre.message}`;
@@ -1624,7 +1627,7 @@
     const [h, m] = String(safety.scheduleTime || "10:00").split(":").map(Number);
     const late = now.getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate(), h || 0, m || 0).getTime();
     if (late < 0 || late > 3 * 3600000) return;                       // only within 3 hours after the set time
-    if ((await chrome.storage.local.get(schedKey))[schedKey] === NFB.today()) return;
+    if ((await chrome.storage.local.get<Record<string, any>>(schedKey))[schedKey] === NFB.today()) return;
     if (coolUntil > Date.now() || !NFB.inActiveHours(safety) || maxSel() <= 0 || !users.length) return;
     const pool = users.filter((u) => !protectReason(u)).slice(0, Math.min(safety.scheduleCount || 20, maxSel()));
     if (!pool.length) return;
@@ -1680,7 +1683,7 @@
     return ok;
   }
   function buildReport(checkLines) {
-    const man = (chrome.runtime && chrome.runtime.getManifest && chrome.runtime.getManifest()) || {};
+    const man: any = (chrome.runtime && chrome.runtime.getManifest && chrome.runtime.getManifest()) || {};
     const keys = ["igMethod", "cooldownHours", "activeEnabled", "activeFrom", "activeTo", "protectVerified", "protectPrivate", "protectTagged", "protectPattern",
       "protectRecentDays", "warmupEnabled", "warmupStart", "warmupStep", "scheduleEnabled", "scheduleTime", "scheduleCount", "minDelay", "maxDelay", "lang", "theme"];
     const maskedLog = logEntries.slice(-40).map((e) => `${new Date(e.at).toISOString()}  ${e.name ? e.text.split(e.name).join("@user") : e.text}`);
@@ -1754,7 +1757,7 @@
     if (ch.protectVerified || ch.protectRecentDays || ch.protectPrivate || ch.protectTagged || ch.protectPattern) {
       refreshCap().then(() => { if (tab === "todo") renderList(); });
     }
-    if (ch[coolKey]) coolUntil = ch[coolKey].newValue || 0;
+    if (ch[coolKey]) coolUntil = Number(ch[coolKey].newValue) || 0;
     if (ch[scanKey]) scanCache = ch[scanKey].newValue || null;
     if (ch[scanKey] || ch[allowKey]) refreshButtons();
     if (ch[stopKey] && ch[stopKey].newValue) stop = true;
@@ -1772,7 +1775,7 @@
     applyEnabled(!!s.enabled);
     await loadCfg();
     await NFB.bindSettings(shadow, modalHost);
-    const o = await chrome.storage.local.get([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
+    const o = await chrome.storage.local.get<Record<string, any>>([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
     scanCache = o[scanKey] || null;
     lists = o[listsKey] || null;
     keep = o[keepKey] || {};

@@ -1,4 +1,6 @@
 // NOTE: don't name top-level variables `top`, `name`, `status`… they clash with window properties and break the whole script.
+import { NFB } from "../shared";
+
 (() => {
   const css = document.createElement("style");
   css.textContent = NFB.themeCSS + NFB.uiCSS + NFB.settingsCSS;

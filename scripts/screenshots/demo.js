@@ -1,6 +1,4 @@
 // Builds deterministic, fake demo data (no real people) and the page/stub harness used for screenshots.
-const fs = require("fs");
-const EXT = require("path").join(__dirname, "..", "..") + "/";
 let seed = 11; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
 const pick = (a) => a[Math.floor(rnd() * a.length)];
 const FIRST = ["Maya","Leo","Ines","Sam","Priya","Jonas","Aiko","Omar","Lucia","Noah","Zara","Mateo","Hana","Felix","Amara","Ravi","Elena","Tomas","Nadia","Kai","Sofia","Diego","Mila","Arjun","Chloe","Yusuf","Freya","Andre","Leila","Oscar"];
@@ -92,4 +90,4 @@ const initScript = (store) => `(() => {
     return J({});
   };
 })();`;
-module.exports = { fullStore, initScript, PAGE_HTML, PAGE_HTML_DARK, users, ACCT, ME, nonFollowers };
+export { fullStore, initScript, PAGE_HTML, PAGE_HTML_DARK, users, ACCT, ME, nonFollowers };

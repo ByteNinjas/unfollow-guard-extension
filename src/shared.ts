@@ -3,13 +3,15 @@
 // legacy "Non-Followers" identifiers kept DELIBERATELY. Renaming them orphans
 // every existing user's saved scans, keep lists and history. Only user-visible
 // strings use the "Unfollow Guard" name.
-(() => {
-  const NFB = (globalThis.NFB = globalThis.NFB || {});
+import type { Adapter, NFB as NFBType, Platform, PlatformId, Settings } from "./types";
+
+export const NFB: NFBType = {};
+(globalThis as any).NFB = NFB;
   NFB.adapters = NFB.adapters || {};
   NFB.PLATFORMS = [
     { id: "instagram", label: "Instagram" },
     { id: "facebook", label: "Facebook", beta: true },
-  ];
+  ] as Platform[];
   NFB.LANGS = [["auto", "Automatic"], ["en", "English"], ["es", "Español"], ["fr", "Français"], ["de", "Deutsch"], ["pt", "Português"]];
   NFB.DEFAULTS = {
     enabled: true,
@@ -84,13 +86,13 @@
   };
 
   NFB.getSettings = async () => {
-    const s = { ...NFB.DEFAULTS, ...(await chrome.storage.local.get(Object.keys(NFB.DEFAULTS))) };
+    const s = { ...NFB.DEFAULTS, ...(await chrome.storage.local.get<Record<string, any>>(Object.keys(NFB.DEFAULTS))) };
     NFB.resetMin = toMin(s.dayResetTime);
     return s;
   };
 
   NFB.getDaily = async (p) => {
-    const o = await chrome.storage.local.get("nfb_daily_" + p);
+    const o = await chrome.storage.local.get<Record<string, any>>("nfb_daily_" + p);
     const d = o["nfb_daily_" + p];
     return d && d.date === NFB.today() ? d : { date: NFB.today(), count: 0 };
   };
@@ -104,7 +106,7 @@
     await chrome.storage.local.set({ ["nfb_daily_" + p]: d });
     // number of different days with at least one unfollow (used by warm-up mode)
     const dk = "nfb_days_" + p;
-    const days = (await chrome.storage.local.get(dk))[dk] || { n: 0, last: "" };
+    const days = (await chrome.storage.local.get<Record<string, any>>(dk))[dk] || { n: 0, last: "" };
     if (days.last !== NFB.today()) { days.n++; days.last = NFB.today(); await chrome.storage.local.set({ [dk]: days }); }
     return d.count;
   };
@@ -112,7 +114,7 @@
   NFB.effectiveCap = async (p, s, base) => {
     if (!s.warmupEnabled) return { cap: base, warm: null };
     const dk = "nfb_days_" + p;
-    const days = (await chrome.storage.local.get(dk))[dk] || { n: 0, last: "" };
+    const days = (await chrome.storage.local.get<Record<string, any>>(dk))[dk] || { n: 0, last: "" };
     const before = Math.max(0, days.n - (days.last === NFB.today() ? 1 : 0));
     const warm = Math.max(1, s.warmupStart + s.warmupStep * before);
     return { cap: Math.min(base, warm), warm };
@@ -120,10 +122,10 @@
 
   // Moves data saved by older versions to the current keys.
   NFB.migrate = async () => {
-    const flag = await chrome.storage.local.get("igMethodV2");
+    const flag = await chrome.storage.local.get<Record<string, any>>("igMethodV2");
     if (!flag.igMethodV2) await chrome.storage.local.set({ igMethod: "api", igMethodV2: true });
-    const o = await chrome.storage.local.get(["nfb_scan", "nfb_scan_instagram", "allowScan", "dailyCap", "nfb_daily"]);
-    const upd = {};
+    const o = await chrome.storage.local.get<Record<string, any>>(["nfb_scan", "nfb_scan_instagram", "allowScan", "dailyCap", "nfb_daily"]);
+    const upd: Record<string, any> = {};
     if (o.nfb_scan && !o.nfb_scan_instagram) upd.nfb_scan_instagram = o.nfb_scan;
     if (o.allowScan !== undefined) upd.allowScan_instagram = o.allowScan;
     if (o.dailyCap !== undefined) upd.dailyCap_instagram = o.dailyCap;
@@ -140,7 +142,7 @@
     const names = ["scan", "lists", "keep", "sel", "gone", "hist"];
     const oldKeys = names.map((n) => `nfb_${n}_${p}`).concat([`nfb_daily_${p}`]);
     const newKeys = names.map((n) => `nfb_${n}_${p}_${acct}`);
-    const o = await chrome.storage.local.get(oldKeys.concat(newKeys));
+    const o = await chrome.storage.local.get<Record<string, any>>(oldKeys.concat(newKeys));
     const set = {}, rm = [];
     names.forEach((n) => {
       const ok = `nfb_${n}_${p}`, nk = `nfb_${n}_${p}_${acct}`;
@@ -149,7 +151,7 @@
     if (o[`nfb_daily_${p}`] !== undefined) { set[`nfb_daily_${p}_${acct}`] = o[`nfb_daily_${p}`]; rm.push(`nfb_daily_${p}`); }
     if (Object.keys(set).length) await chrome.storage.local.set(set);
     if (rm.length) await chrome.storage.local.remove(rm);
-    const idx = (await chrome.storage.local.get("nfb_accounts")).nfb_accounts || {};
+    const idx = (await chrome.storage.local.get<Record<string, any>>("nfb_accounts")).nfb_accounts || {};
     const list = idx[p] || [];
     if (!list.includes(acct)) { list.push(acct); idx[p] = list; await chrome.storage.local.set({ nfb_accounts: idx }); }
     const sc = set[`nfb_scan_${p}_${acct}`] || o[`nfb_scan_${p}_${acct}`];
@@ -277,7 +279,7 @@
       ov.addEventListener("keydown", (e) => {
         e.stopPropagation();
         if (e.key === "Escape" && !o.hideCancel) { done(false); return; }
-        if (e.key === "Enter" && !/^(BUTTON|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); done(true); return; }
+        if (e.key === "Enter" && !/^(BUTTON|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)) { e.preventDefault(); done(true); return; }
         if (e.key === "Tab") {                                   // keep keyboard focus inside the dialog
           const f = [...m.querySelectorAll("button, input, select, textarea, a[href]")].filter((x) => !x.disabled);
           if (!f.length) return;
@@ -366,13 +368,15 @@
       ${row("“Following” button label", "", `<input class="field ltext" type="text" id="labelFollowing" placeholder="e.g. Siguiendo">`)}
       ${row("“Unfollow” menu label", "", `<input class="field ltext" type="text" id="labelUnfollow" placeholder="e.g. Dejar de seguir">`)}
     </div>`;
-  NFB.settingsHTML =
+  // Rebuildable so a new platform can register after this module loaded (see the adapter test).
+  NFB.buildSettingsHTML = () =>
     `<div id="nfbset">` + general + appearance + method + safety + schedule + filters + labels + NFB.PLATFORMS.map(platform).join("") +
     `<div class="sblock"><div class="stitle">Delay between unfollows</div>
        ${row("Random delay (seconds)", "A random value between min and max is used.",
         `<div style="display:flex;gap:6px;align-items:center"><input class="field snum" type="number" id="minDelay" min="10" max="600"> – <input class="field snum" type="number" id="maxDelay" min="10" max="600"></div>`)}
      </div>
      <div class="ssaved" id="ssaved"></div></div>`;
+  NFB.settingsHTML = NFB.buildSettingsHTML();
 
   // root: document (popup) or a ShadowRoot (in-page panel). dialogHost: where confirmation dialogs are shown.
   NFB.bindSettings = async (root, dialogHost) => {
@@ -387,11 +391,11 @@
       const s = await NFB.getSettings();
       $("theme").value = s.theme || "system";
       $("enabled").checked = !!s.enabled;
-      const idx = (await chrome.storage.local.get("nfb_accounts")).nfb_accounts || {};
+      const idx = (await chrome.storage.local.get<Record<string, any>>("nfb_accounts")).nfb_accounts || {};
       for (const p of NFB.PLATFORMS) {
         $("allowScan_" + p.id).checked = !!s["allowScan_" + p.id];
         const accts = idx[p.id] || [];
-        const metas = accts.length ? await chrome.storage.local.get(accts.map((a) => `nfb_meta_${p.id}_${a}`)) : {};
+        const metas = accts.length ? await chrome.storage.local.get<Record<string, any>>(accts.map((a) => `nfb_meta_${p.id}_${a}`)) : {};
         const lines = accts
           .map((a) => ({ a, m: metas[`nfb_meta_${p.id}_${a}`] }))
           .filter((x) => x.m)
@@ -430,7 +434,7 @@
       await refreshInfo();
     };
     const save = async () => {
-      const upd = {};
+      const upd: Record<string, any> = {};
       for (const p of NFB.PLATFORMS) {
         upd["allowScan_" + p.id] = $("allowScan_" + p.id).checked;
         upd["dailyCap_" + p.id] = Math.min(100, Math.max(1, parseInt($("dailyCap_" + p.id).value, 10) || NFB.DEFAULTS["dailyCap_" + p.id]));
@@ -497,7 +501,7 @@
           danger: true,
         });
         if (!ok) return;
-        const idx = (await chrome.storage.local.get("nfb_accounts")).nfb_accounts || {};
+        const idx = (await chrome.storage.local.get<Record<string, any>>("nfb_accounts")).nfb_accounts || {};
         const keys = ["nfb_scan_" + p.id, "nfb_lists_" + p.id, "nfb_gone_" + p.id];
         (idx[p.id] || []).forEach((a) => ["scan", "lists", "gone", "meta"].forEach((n) => keys.push(`nfb_${n}_${p.id}_${a}`)));
         await chrome.storage.local.remove(keys);
@@ -523,4 +527,3 @@
       if (ch.theme) el.setAttribute("data-theme", ch.theme.newValue || "system");
     });
   };
-})();
