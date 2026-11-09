@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-0095f6?style=for-the-badge&logo=googlechrome&logoColor=white)](manifest.json)
 [![Chromium 111+](https://img.shields.io/badge/Chromium-111%2B-6a3fc8?style=for-the-badge&logo=brave&logoColor=white)](#-installation)
-[![Version](https://img.shields.io/badge/version-1.7.1-16a34a?style=for-the-badge)](manifest.json)
+[![Version](https://img.shields.io/badge/version-1.8.0-16a34a?style=for-the-badge)](manifest.json)
 [![Facebook: beta](https://img.shields.io/badge/Facebook-BETA-f59e0b?style=for-the-badge&logo=facebook&logoColor=white)](#-facebook-beta)
 [![Firefox: experimental](https://img.shields.io/badge/Firefox-experimental-ff7139?style=for-the-badge&logo=firefoxbrowser&logoColor=white)](#-firefox-experimental)
 
@@ -65,6 +65,9 @@ It was built for the very common situation of following thousands of accounts wh
 
 <img src="docs/screenshots/labels.png" alt="Label and note dialog" width="310">&nbsp;<img src="docs/screenshots/selfcheck.png" alt="Self-check dialog" width="310">&nbsp;<img src="docs/screenshots/tour.png" alt="Welcome tour" width="310">
 <br><sub>Labels and notes, the self-check with a copyable debug report, and the welcome tour.</sub>
+<br><br>
+<img src="docs/screenshots/limit.png" alt="Daily limit dialog" width="310">
+<br><sub>The daily-limit dialog: reset or set the counter, change the limit and the reset time, or end a cool-down.</sub>
 
 <img src="docs/screenshots/dialog.png" alt="Confirmation dialog" width="470">&nbsp;&nbsp;<img src="docs/screenshots/progress.png" alt="Progress card" width="470">
 <br><sub>In-app confirmation dialogs (no native browser popups) and the progress card with avatar, username, countdown and Stop.</sub>
@@ -100,6 +103,12 @@ Lists render in chunks, so even thousands of rows stay smooth. Every tab has sea
 
 ### 🛡 Unfollow with guard rails
 - **Daily limit** (default 40 on Instagram, 20 on Facebook, max 100): you *can't select more accounts than you have left today*.
+- **Daily-limit controls**: click the `used / limit today` chip to reset the counter, set it to any number, change the limit, change **when the counter resets** (midnight by default) or end a cool-down. These only change this extension's counter; Instagram applies its own limits that nobody can see or reset.
+- **"Select all" fills the limit and explains itself**: it selects exactly what is left of today's limit and, when that is fewer than the limit, tells you why (already unfollowed today, protected accounts skipped, or not enough accounts).
+- **Failed unfollows are retried**: after the first pass, every account that failed is tried once more. Any that still fail stay in the list with a **Failed** mark (hover for the reason) and the summary says how many.
+- **Removed, banned or renamed accounts never stop a batch**: they are looked up by their id first (browser-click method), a renamed account is opened under its new name, and a removed one leaves the list without using up the daily limit. Instagram's "page isn't available" screen is recognised immediately.
+- **Nothing can hang**: every request and every account has a time limit; a batch still stops after three failed accounts in a row, a rate limit or a block.
+- **Instagram's lag is handled**: accounts you unfollowed in the last 24 hours that Instagram's lists still show are hidden after a scan.
 - **Warm-up mode** (optional): start with a small limit and raise it every day you use the extension.
 - **Protection rules** (optional): bulk selection skips **verified** accounts, **private** accounts, accounts matching **username patterns** (`*_official, shop*`), accounts you gave a **label**, and accounts you **recently started following**.
 - **Filters and sorting**: show only private / public / no-profile-picture / verified / labelled accounts, sorted A→Z, Z→A or by full name. Select first / Select all respect the filter.
@@ -223,6 +232,7 @@ Open them from the **⚙** button in the panel or from the toolbar popup.
 | **Language** | Automatic | Interface language of the panel. |
 | **Instagram unfollow method** | Direct API | Direct API with automatic fallback, or Browser clicks only. |
 | **Cool-down after a block** | 6 h | Pause unfollowing for this many hours after a block or rate limit (0 = off). |
+| **Daily counter resets at** | 00:00 | When today's unfollow counter starts over (your local time). The counter can also be reset or set by hand from the panel. |
 | **Only unfollow during active hours** | Off | A batch waits until the window opens (your local time). |
 | **Active hours** | 09:00 – 22:00 | The allowed window, used when the switch above is on. |
 | **Protect verified accounts** | Off | Select first / Select all skip verified accounts. |
@@ -299,6 +309,30 @@ Click the extension's icon in the browser toolbar and switch **Enabled** on. (Pi
 </details>
 
 <details>
+<summary><b>"Select all" selects fewer than my daily limit</b></summary>
+
+It selects what is left of today's limit. A message explains the reason: some were already unfollowed today, protected accounts were skipped, or fewer accounts exist. Click the `used / limit today` chip to reset or adjust the counter.
+</details>
+
+<details>
+<summary><b>Some accounts were left after a batch</b></summary>
+
+Failed accounts are retried once and then stay in the list with a **Failed** mark (hover it for the reason), so you can run them again. Accounts that no longer exist (removed or banned) are dropped from the list automatically and don't count against the limit. After a rescan, accounts you unfollowed in the last 24 hours that Instagram still lists (its lists lag) are hidden.
+</details>
+
+<details>
+<summary><b>The batch seems stuck on a profile</b></summary>
+
+With *Browser clicks*, each account is looked up first, so removed, banned and renamed accounts are skipped or opened under their new name instead of waiting for a page that never loads. Any single account is given up on after at most 90 seconds. If you still see long waits, press **Self-check** and send the report.
+</details>
+
+<details>
+<summary><b>I want to reset or change the daily counter</b></summary>
+
+Click the `used / limit today` chip in the panel: set **Used today** (or press *Reset counter to 0*), change the **Daily limit**, change when the counter resets, or end a cool-down. The reset time is also in ⚙ Settings → Safety.
+</details>
+
+<details>
 <summary><b>"Scan locked"</b></summary>
 
 By design: the scan locks after each run to prevent accidental repeats. Open ⚙ Settings, turn on **Allow scanning** for that site, then scan again.
@@ -364,6 +398,7 @@ Those lists are filled by a scan. If you have more than 2,000 followers and scan
 - **Facebook (beta) and the Firefox package are untested** against real accounts.
 - **Translations** (Spanish, French, German, Portuguese) were written without review by native speakers; corrections are welcome. The button words used by *Browser clicks* for other languages are best effort and can be overridden in the settings.
 - **"Recently followed"** is an approximation (Instagram doesn't expose follow dates). An "accounts you've interacted with" rule isn't possible for the same reason.
+- **Resetting the counter does not reset Instagram's own limits.** Those are applied by Instagram, can't be seen, and may count over a rolling 24 hours; keep the limit conservative.
 - **The daily schedule** only works while a tab is open; the browser can't start unfollowing by itself.
 - **Firefox** may ask you to grant the picture-host access (`cdninstagram.com`, `fbcdn.net`) separately; pictures still load without it, just without the extension fallback.
 - **Private / no-picture filters** need data from a scan made with this version; accounts from older scans have no such flags until you scan again.
@@ -404,13 +439,14 @@ The extension has **no build step**: edit the files and reload. Dev tooling (tes
 #   2. chrome://extensions  →  ↻ reload the extension
 #   3. refresh the Instagram / Facebook tab
 
-npm install          # dev tools only: jsdom, puppeteer-core, @sparticuz/chromium
+npm install          # dev tools only (Node 26 LTS or newer): jsdom, puppeteer-core, @sparticuz/chromium
 npm test             # runs the automated tests (simulated browser, no network)
 npm run build        # dist/unfollow-guard-chromium.zip and ...-firefox.zip
 npm run screenshots  # re-renders docs/screenshots and docs/demo.gif (needs pillow: pip install pillow)
 ```
 
 Tips:
+- **Tooling policy:** every package and CI action stays on the latest stable release. Dependabot opens weekly grouped PRs into `dev` for npm and GitHub Actions; CI runs on the latest Node LTS. Do not pin older versions.
 - Console messages are prefixed with `[Unfollow Guard]`.
 - All data lives in `chrome.storage.local`, under keys like `nfb_<name>_<site>_<accountId>`. Inspect it from the extension's service-worker console with `chrome.storage.local.get(null, console.log)`.
 - To add a language, add a column to `ROWS` in `i18n.js` (a test checks that every key exists in every language and that placeholders match).

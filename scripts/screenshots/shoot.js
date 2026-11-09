@@ -71,6 +71,11 @@ const tab = (page, id) => click(page, `.tab[data-id="${id}"]`).then(() => sleep(
     await sleep(900);
     await dg.screenshot({ path: OUT + "selfcheck.png", clip: { x: 300, y: 150, width: 680, height: 520 } }); await dg.close();
 
+    const lim = await newPage(browser, fullStore("light"), false);
+    await clickFab(lim);
+    await lim.evaluate(() => document.getElementById("nfb-host").shadowRoot.getElementById("chipCap").click()); await sleep(450);
+    await lim.screenshot({ path: OUT + "limit.png", clip: { x: 300, y: 150, width: 680, height: 520 } }); await lim.close();
+
     const tour = await newPage(browser, fullStore("light", { nfb_onboarded: false }), false);
     await clickFab(tour); await sleep(450);
     await tour.screenshot({ path: OUT + "tour.png", clip: { x: 300, y: 150, width: 680, height: 520 } }); await tour.close();
