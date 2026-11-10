@@ -1,26 +1,33 @@
 import { NFB } from "../shared";
+import { createAvatars } from "./avatars";
+import { createBatchRunner } from "./batch";
+import { createExportTools } from "./export";
+import { renderStatsView } from "./stats";
 import "../i18n";
 import "../adapters";
 
 (() => {
-  if (document.getElementById("nfb-host")) return;
+  const ourHost = document.getElementById("nfb-host-guard") || document.getElementById("nfb-host");
+  if (ourHost && ourHost.dataset.nfbGuard === "1") return;
+  const existingHost = document.getElementById("nfb-host");
   const A = Object.values(NFB.adapters).find((a: any) => a.match()) as any;
   if (!A) return;
   const ACCT = String((A.accountId && A.accountId()) || "default"); // everything below is stored per logged-in account
   const dayKey = `${A.id}_${ACCT}`;
-  const K = (n) => `nfb_${n}_${A.id}_${ACCT}`;
+  const K = (n: string) => `nfb_${n}_${A.id}_${ACCT}`;
   const scanKey = K("scan"), listsKey = K("lists"), keepKey = K("keep"), selKey = K("sel"),
         goneKey = K("gone"), histKey = K("hist"), runKey = K("run"), stopKey = K("stop"),
         snapKey = K("snap"), flwKey = K("flw"), coolKey = K("cool"), metaKey = K("meta"), seenKey = K("seen"),
         tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail");
   const allowKey = "allowScan_" + A.id;
-  const IS_BETA = !!(NFB.PLATFORMS.find((p) => p.id === A.id) || {}).beta;
+  const IS_BETA = !!(NFB.PLATFORMS.find((p: any) => p.id === A.id) || {}).beta;
 
   const LOGO = `<svg viewBox="0 0 64 64" width="32" height="32" aria-hidden="true"><defs><linearGradient id="nfbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0095f6"/><stop offset="1" stop-color="#833ab4"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#nfbg)"/><circle cx="25" cy="21" r="9" fill="#fff"/><path d="M7 49a18 18 0 0 1 36 0z" fill="#fff"/><circle cx="46" cy="45" r="12" fill="#ff3b5c" stroke="#6f55d9" stroke-width="3"/><rect x="40" y="43.5" width="12" height="3" rx="1.5" fill="#fff"/></svg>`;
 
   // ---------- UI (Shadow DOM so the site's CSS/dark mode can't affect it) ----------
   const host = document.createElement("div");
-  host.id = "nfb-host";
+  host.id = existingHost ? "nfb-host-guard" : "nfb-host"; // never steal an element the page already owns
+  host.dataset.nfbGuard = "1";
   host.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;display:none;";
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
@@ -179,12 +186,12 @@ import "../adapters";
         <div class="chips"><span class="chip" id="chipTime"></span><button class="chip chipbtn" id="chipCap" type="button" data-ti="tip_chipcap"></button></div>
         <div class="notice" id="status" role="status" aria-live="polite"></div>
         <div class="scan">
-          <select class="field" id="lim">
+          <select class="field" id="lim" data-al="aria_scan_limit">
             <option value="50" data-i="opt_first" data-n="50"></option><option value="100" data-i="opt_first" data-n="100"></option>
             <option value="250" data-i="opt_first" data-n="250"></option><option value="500" data-i="opt_first" data-n="500"></option>
             <option value="0" data-i="opt_all"></option>
           </select>
-          <span class="lbl" id="startwrap"><span data-i="lbl_from"></span> <input class="field num" id="start" type="number" min="1" value="1"></span>
+          <span class="lbl" id="startwrap"><span data-i="lbl_from"></span> <input class="field num" id="start" type="number" min="1" value="1" data-al="aria_scan_from"></span>
           <button class="btn primary" id="scan" style="margin-left:auto"></button>
         </div>
         <div class="tabs" id="tabs" role="tablist"></div>
@@ -196,19 +203,19 @@ import "../adapters";
           <input type="file" id="fileIn" accept=".json,.csv,.txt,text/plain,text/csv,application/json" style="display:none" tabindex="-1">
         </div>
         <div class="filters" id="filters">
-          <select class="field sm" id="fltr">
+          <select class="field sm" id="fltr" data-al="aria_filter">
             <option value="all" data-i="flt_all"></option><option value="private" data-i="flt_private"></option><option value="public" data-i="flt_public"></option>
             <option value="nopic" data-i="flt_nopic"></option><option value="verified" data-i="flt_verified"></option>
             <option value="tagged" data-i="flt_tagged"></option><option value="untagged" data-i="flt_untagged"></option>
           </select>
-          <select class="field sm" id="srt">
+          <select class="field sm" id="srt" data-al="aria_sort">
             <option value="default" data-i="srt_default"></option><option value="az" data-i="srt_az"></option>
             <option value="za" data-i="srt_za"></option><option value="name" data-i="srt_name"></option>
           </select>
         </div>
         <div class="sel2" id="sel2">
           <button class="btn sm" id="selN" data-i="btn_selfirst"></button>
-          <input class="field num" id="n" type="number" min="1" value="30" aria-label="30">
+          <input class="field num" id="n" type="number" min="1" value="30" data-al="aria_select_n">
           <button class="btn sm" id="all" data-i="btn_selall"></button>
           <button class="btn sm" id="clr" data-i="btn_clear"></button>
         </div>
@@ -241,29 +248,31 @@ import "../adapters";
   </div>`;
   document.body.append(host);
 
-  const $ = (id) => shadow.getElementById(id);
+  const $ = (id: string) => shadow.getElementById(id) as any;
   const tr = (k: string, v?: Record<string, unknown>) => NFB.t(k, v);
   NFB.watchTheme($("app"));
   const panel = $("panel"), listEl = $("list"), modalHost = $("modalhost");
   const scanBtn = $("scan"), delBtn = $("del"), keepBtn = $("keepSel"), stopBtn = $("runstop");
-  const ask = (o) => NFB.dialog(modalHost, o);
-  const fmtN = (v) => (typeof v === "number" ? v.toLocaleString() : "–");
+  const ask = (o: any) => NFB.dialog(modalHost, o);
+  const fmtN = (v: unknown) => (typeof v === "number" ? v.toLocaleString() : "–");
 
-  // Fills every element marked data-i (text), data-ph (placeholder) and data-ti (tooltip + accessible name).
+  // Fills every element marked data-i (text), data-ph (placeholder), data-al (accessible name) and
+  // data-ti (tooltip + accessible name).
   function applyLang() {
-    shadow.querySelectorAll("[data-i]").forEach((el) => { el.textContent = tr(el.dataset.i, el.dataset.n ? { n: Number(el.dataset.n).toLocaleString() } : undefined); });
-    shadow.querySelectorAll("[data-ph]").forEach((el) => { el.placeholder = tr(el.dataset.ph); el.setAttribute("aria-label", el.placeholder); });
+    shadow.querySelectorAll("[data-i]").forEach((el) => { el.textContent = tr(el.dataset.i || "", el.dataset.n ? { n: Number(el.dataset.n).toLocaleString() } : undefined); });
+    shadow.querySelectorAll("[data-ph]").forEach((el) => { el.placeholder = tr(el.dataset.ph || ""); el.setAttribute("aria-label", el.placeholder); });
+    shadow.querySelectorAll("[data-al]").forEach((el) => el.setAttribute("aria-label", tr(el.dataset.al || "")));
     shadow.querySelectorAll("[data-ti]").forEach((el) => {
-      const s = tr(el.dataset.ti);
+      const s = tr(el.dataset.ti || "");
       el.title = s;
       if (!el.textContent.trim() || el.textContent.trim() === "?" || el.classList.contains("iconbtn")) el.setAttribute("aria-label", s);
     });
     stopBtn.textContent = tr(stopBtn.dataset.state === "stopping" ? "btn_stopping" : schedPending ? "btn_cancel" : "btn_stop");
   }
 
-  const setStatus = (text) => ($("status").textContent = text || "");
+  const setStatus = (text: any) => ($("status").textContent = text || "");
   // toast with an optional action button (e.g. Undo)
-  const toast = (msg, action?) => {
+  const toast = (msg: any, action?: any) => {
     const d = document.createElement("div");
     d.className = "toast";
     d.textContent = msg;
@@ -279,123 +288,37 @@ import "../adapters";
     setTimeout(() => d.remove(), action ? 7000 : 3200);
   };
   // Activity log. `name` is kept separately so a shared debug report can hide usernames.
-  const logEntries = [];
+  let logEntries: any[] = [];
   const logBox = $("log");
-  const log = (text, name?) => {
+  const log = (text: any, name?: any) => {
     logEntries.push({ at: Date.now(), text, name: name || "" });
     if (logEntries.length > 200) logEntries.shift();
     const d = document.createElement("div");
     d.textContent = new Date().toLocaleTimeString() + "  " + text;
     logBox.prepend(d);
-    while (logBox.childElementCount > 80) logBox.lastChild.remove();
+    while (logBox.childElementCount > 80) logBox.lastChild?.remove();
     console.log("[Unfollow Guard]", text);
   };
-  const notify = (title, message) => {
+  const notify = (title: any, message: any) => {
     try { if (chrome.runtime && chrome.runtime.sendMessage) chrome.runtime.sendMessage({ type: "notify", title, message }, () => void chrome.runtime.lastError); } catch {}
   };
 
-  const placeholder = (u) => {
-    const d = document.createElement("div");
-    d.className = "av ph";
-    d.textContent = ((u && u.username) || "?").trim().charAt(0).toUpperCase();
-    return d;
-  };
   // ---------- profile pictures ----------
   // Instagram picture links expire after a few days and can be blocked by the page's security rules or a
   // privacy shield. A picture is therefore loaded in steps: directly, then through the extension's background
   // worker, then (Instagram) with a freshly requested link. Only if all fail is a letter shown.
-  const picCache = new Map();       // url -> data URL, this session
-  let picFresh: Record<string, any> = {};                // pk -> refreshed url (saved)
-  const expiredUrl = (url) => { const m = /[?&]oe=([0-9a-f]+)/i.exec(url || ""); return !!m && parseInt(m[1], 16) * 1000 < Date.now(); };
-  const loadImg = (img, src) => new Promise((res) => {
-    const timer = setTimeout(() => res(false), 8000);
-    img.onload = () => { clearTimeout(timer); res(true); };
-    img.onerror = () => { clearTimeout(timer); res(false); };
-    img.src = src;
+  let picFresh: Record<string, string> = {}; // pk -> refreshed url (saved)
+  const avatars = createAvatars({
+    adapter: A,
+    picsKey,
+    state: {
+      get users() { return users; },
+      get lists() { return lists; },
+      get picFresh() { return picFresh; },
+    },
   });
-
-  const bgQueue = []; let bgActive = 0;
-  const fetchViaBg = (url) => new Promise((res) => {
-    try { chrome.runtime.sendMessage({ type: "fetch-image", url }, (r) => { void chrome.runtime.lastError; res(r && r.ok ? r.data : null); }); } catch { res(null); }
-  });
-  function pumpBg() {
-    while (bgActive < 4 && bgQueue.length) {
-      const job = bgQueue.shift();
-      bgActive++;
-      fetchViaBg(job.url).then((d) => {
-        if (d) { if (picCache.size > 400) picCache.delete(picCache.keys().next().value); picCache.set(job.url, d); }
-        job.resolve(d);
-      }).finally(() => { bgActive--; pumpBg(); });
-    }
-  }
-  const viaExtension = (url) => (picCache.has(url) ? Promise.resolve(picCache.get(url)) : new Promise((resolve) => { bgQueue.push({ url, resolve }); pumpBg(); }));
-
-  // Asks the site for a fresh picture link, slowly (about one a second), at most 80 per page load, and
-  // stops for the rest of the page load if the site answers with a limit or block.
-  let refreshBudget = 80, refreshDead = false, refreshBusy = false;
-  const refreshQ = [], refreshing = new Map();
-  function refreshPic(u) {
-    if (!A.refreshPic || refreshDead || refreshBudget <= 0) return Promise.resolve(null);
-    if (refreshing.has(u.pk)) return refreshing.get(u.pk);
-    const p = new Promise((resolve) => { refreshQ.push({ u, resolve }); pumpRefresh(); });
-    refreshing.set(u.pk, p);
-    return p;
-  }
-  async function pumpRefresh() {
-    if (refreshBusy) return;
-    refreshBusy = true;
-    while (refreshQ.length) {
-      const { u, resolve } = refreshQ.shift();
-      if (refreshDead || refreshBudget <= 0) { resolve(null); continue; }
-      refreshBudget--;
-      let url = null;
-      try { url = await A.refreshPic(u); } catch (e) { if (e && e.fatal) refreshDead = true; }
-      resolve(url);
-      await NFB.sleep(NFB.rand(900, 1600));
-    }
-    refreshBusy = false;
-  }
-  let picT;
-  const savePics = () => { clearTimeout(picT); picT = setTimeout(() => chrome.storage.local.set({ [picsKey]: picFresh }), 800); };
-
-  async function loadAvatar(img, u) {
-    const attempt = async (url) => {
-      if (!url) return false;
-      if (/^data:/.test(url)) return loadImg(img, url);
-      if (expiredUrl(url)) return false;                       // known to be dead: don't even try
-      if (await loadImg(img, url)) return true;
-      const d = await viaExtension(url);
-      return !!d && (await loadImg(img, d));
-    };
-    const url = picFresh[u.pk] || u.pic;
-    if (await attempt(url)) return;
-    const fresh = await refreshPic(u);
-    if (fresh && fresh !== url && (await attempt(fresh))) { picFresh[u.pk] = fresh; savePics(); return; }
-    img.replaceWith(placeholder(u));
-  }
-  const avatarEl = (u) => {
-    if (!u || !(u.pic || picFresh[u.pk])) return placeholder(u);
-    const img = new Image();
-    img.className = "av";
-    img.alt = "";
-    img.decoding = "async";
-    loadAvatar(img, u);
-    return img;
-  };
-  async function picCheck() {
-    const u = users.find((x) => x.pic) || ((lists && lists.following) || []).find((x) => x.pic);
-    if (!u) return [{ ok: null, name: "Profile pictures", detail: "none saved yet: run a scan" }];
-    const url = picFresh[u.pk] || u.pic;
-    const out = [];
-    const exp = expiredUrl(url);
-    out.push({ ok: !exp, name: "Picture link", detail: exp ? "expired (links last a few days): refreshed automatically, or scan again" : "not expired" });
-    const test = (src) => loadImg(new Image(), src);
-    out.push({ ok: await test(url), name: "Picture loads directly in the page", detail: "" });
-    const d = await viaExtension(url);
-    out.push({ ok: !!d, name: "Picture loads through the extension", detail: d ? "" : "blocked, expired or unavailable" });
-    out.push({ ok: A.refreshPic ? true : null, name: "Expired links can be refreshed", detail: A.refreshPic ? `up to ${refreshBudget} more this page load` : "not supported on this site" });
-    return out;
-  }
+  const avatarEl = avatars.avatarEl;
+  const picCheck = avatars.picCheck;
 
   // ---------- header buttons: settings / theme / close / help ----------
   let inSettings = false;
@@ -412,9 +335,9 @@ import "../adapters";
     refreshGear();
   };
   const THEMES = ["system", "light", "dark"];
-  const THEME_ICON = { system: "◐", light: "☀", dark: "☾" };
+  const THEME_ICON: Record<string, string> = { system: "◐", light: "☀", dark: "☾" };
   let theme = "system";
-  const showTheme = (v) => {
+  const showTheme = (v: any) => {
     theme = THEMES.includes(v) ? v : "system";
     const s = tr("tt_theme", { x: theme[0].toUpperCase() + theme.slice(1) });
     $("themeBtn").textContent = THEME_ICON[theme];
@@ -429,10 +352,10 @@ import "../adapters";
   const fab = $("fab");
   const M = 16;
   let cfg = { position: "bottom-right", draggable: true };
-  let custom = null;
+  let custom: any = null;
   const vw = () => document.documentElement.clientWidth;
   const vh = () => window.innerHeight;
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   function fabXY() {
     const w = fab.offsetWidth, h = fab.offsetHeight;
     const maxX = Math.max(0, vw() - w), maxY = Math.max(0, vh() - h);
@@ -440,7 +363,7 @@ import "../adapters";
     const p = cfg.position || "bottom-right";
     return { x: clamp(p.endsWith("left") ? M : maxX - M, 0, maxX), y: clamp(p.startsWith("top") ? M : maxY - M, 0, maxY), w, h };
   }
-  function placePanel(f) {
+  function placePanel(f: { x: number; y: number; w: number; h: number }) {
     const W = vw(), H = vh();
     const pw = Math.min(440, W - 2 * M);
     const above = f.y + f.h / 2 > H / 2;
@@ -454,7 +377,7 @@ import "../adapters";
     panel.style.left = x + "px";
     panel.style.top = y + "px";
   }
-  function place(override?) {
+  function place(override?: any) {
     const f = override || fabXY();
     fab.style.left = f.x + "px";
     fab.style.top = f.y + "px";
@@ -475,14 +398,14 @@ import "../adapters";
     place();
     if (panel.style.display === "flex") { fillView(); maybeTour(); }
   };
-  let drag = null;
-  fab.addEventListener("pointerdown", (e) => {
+  let drag: any = null;
+  fab.addEventListener("pointerdown", (e: PointerEvent) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const f = fabXY();
     drag = { sx: e.clientX, sy: e.clientY, ox: f.x, oy: f.y, w: f.w, h: f.h, moved: false };
     fab.setPointerCapture(e.pointerId);
   });
-  fab.addEventListener("pointermove", (e) => {
+  fab.addEventListener("pointermove", (e: PointerEvent) => {
     if (!drag || !cfg.draggable) return;
     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
     if (!drag.moved && Math.hypot(dx, dy) < 5) return;
@@ -491,7 +414,7 @@ import "../adapters";
     drag.y = clamp(drag.oy + dy, 0, Math.max(0, vh() - drag.h));
     place({ x: drag.x, y: drag.y, w: drag.w, h: drag.h });
   });
-  fab.addEventListener("pointerup", async (e) => {
+  fab.addEventListener("pointerup", async (e: PointerEvent) => {
     if (!drag) return;
     const d = drag;
     drag = null;
@@ -513,12 +436,12 @@ import "../adapters";
   let keep: Record<string, any> = {};              // pk -> user kept
   let gone = new Set<any>();       // unfollowed since the last scan
   let hist: any[] = [];              // unfollow history [{pk, username, full_name, pic, at}]
-  let selected = new Set();
-  let followerSet = new Set(), followingSet = new Set(), histSet = new Set(), mutual = [], fans = [];
+  let selected = new Set<string>();
+  let followerSet = new Set<string>(), followingSet = new Set<string>(), histSet = new Set<string>(), mutual: any[] = [], fans: any[] = [];
   let seen: any = { complete: false, m: {} }; // when the extension first saw each account you follow (0 = already followed before)
   let tab = "todo", query = "", fltr = "all", srt = "default";
   let capInfo: any = { cap: 40, used: 0 };
-  let scanning = false, unfollowing = false, stop = false, enabled = true;
+  let scanning = false, unfollowing = false, enabled = true;
   let runNextAt = 0;
   let flw: any[] = [];               // follower changes between scans [{pk, username, full_name, pic, type: "lost"|"new", at}]
   let coolUntil = 0;          // cool-down after a block (timestamp)
@@ -526,17 +449,16 @@ import "../adapters";
   let tags: Record<string, any> = {};              // pk -> {tag, note}
   let failed: Record<string, any> = {};            // pk -> reason, for accounts whose unfollow failed (also after the retry)
   let onboarded = true;
-  let schedPending = null;    // {cancel} while a scheduled batch counts down
-  NFB.shouldStop = () => stop;
+  let schedPending: any = null;    // {cancel} while a scheduled batch counts down
 
   const TAG_IDS = ["friend", "family", "client", "work", "other"];
-  const tagLabel = (id) => tr("tag_" + id);
+  const tagLabel = (id: string) => tr("tag_" + id);
   const maxSel = () => Math.max(0, capInfo.cap - capInfo.used);
   const capMsg = () =>
     tr("ts_cap", { cap: capInfo.cap, warm: capInfo.warm ? tr("ts_cap_warm", { base: capInfo.base }) : "", used: capInfo.used, max: maxSel() });
-  const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/"/g, '\\"'));
+  const esc = (v: any) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/"/g, '\\"'));
 
-  let selT;
+  let selT: any;
   const saveSel = () => { clearTimeout(selT); selT = setTimeout(() => chrome.storage.local.set({ [selKey]: [...selected] }), 150); };
   const saveKeep = () => chrome.storage.local.set({ [keepKey]: keep });
   const saveHist = () => chrome.storage.local.set({ [histKey]: hist });
@@ -545,17 +467,17 @@ import "../adapters";
   function derive() {
     const fol = (lists && lists.followers) || null;
     const fing = (lists && lists.following) || [];
-    followerSet = new Set((fol || []).map((u) => u.pk));
-    followingSet = new Set(fing.map((u) => u.pk));
-    histSet = new Set(hist.map((h) => h.pk));
-    mutual = fol ? fing.filter((u) => followerSet.has(u.pk) && !histSet.has(u.pk)) : [];
-    fans = fol ? fol.filter((u) => !followingSet.has(u.pk)) : [];
+    followerSet = new Set((fol || []).map((u: any) => u.pk));
+    followingSet = new Set(fing.map((u: any) => u.pk));
+    histSet = new Set(hist.map((h: any) => h.pk));
+    mutual = fol ? fing.filter((u: any) => followerSet.has(u.pk) && !histSet.has(u.pk)) : [];
+    fans = fol ? fol.filter((u: any) => !followingSet.has(u.pk)) : [];
   }
   // Instagram's lists lag a few minutes behind: accounts unfollowed in the last 24 h are hidden if a scan still lists them
   const recentlyUnfollowed = () => new Set(hist.filter((h) => !h.refollowed && Date.now() - h.at < 864e5).map((h) => h.pk));
 
   // ---------- tabs + list (renders in chunks: big lists stay fast) ----------
-  const TABS = [
+  const TABS: Array<{ id: string; count: () => number | string; items: () => any[] }> = [
     { id: "todo", count: () => users.length, items: () => users },
     { id: "keep", count: () => Object.keys(keep).length, items: () => Object.values(keep) },
     { id: "mutual", count: () => mutual.length, items: () => mutual },
@@ -567,7 +489,7 @@ import "../adapters";
   if (A.followerDiff) TABS.push({ id: "changes", count: () => flw.length, items: () => flw.slice().reverse() });
   TABS.push({ id: "stats", count: () => "", items: () => [] });
   const FILTER_TABS = new Set(["todo", "keep", "mutual", "fans", "followers", "following"]);
-  const tabLabel = (id) => tr("tab_" + id);
+  const tabLabel = (id: string) => tr("tab_" + id);
 
   const tabsEl = $("tabs");
   TABS.forEach((t) => {
@@ -576,16 +498,16 @@ import "../adapters";
     b.dataset.id = t.id;
     b.setAttribute("role", "tab");
     b.innerHTML = '<span class="tl"></span><span class="n">0</span>';
-    b.querySelector(".tl").textContent = tabLabel(t.id);
+    b.querySelector(".tl")!.textContent = tabLabel(t.id);
     b.onclick = () => showTab(t.id);
     tabsEl.append(b);
   });
-  tabsEl.addEventListener("keydown", (e) => {
+  tabsEl.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     const ids = TABS.map((x) => x.id);
     const j = (ids.indexOf(tab) + (e.key === "ArrowRight" ? 1 : ids.length - 1)) % ids.length;
     showTab(ids[j]);
-    tabsEl.querySelector(`[data-id="${ids[j]}"]`).focus();
+    tabsEl.querySelector(`[data-id="${ids[j]}"]`)?.focus();
     e.preventDefault();
   });
 
@@ -611,14 +533,14 @@ import "../adapters";
     return d;
   };
 
-  const rows = new Map(); // pk -> {row, cb} for the To-unfollow tab
+  const rows = new Map<string, any>(); // pk -> {row, cb} for the To-unfollow tab
   const BATCH = 60;
-  let filtered = [], shown = 0;
+  let filtered: any[] = [], shown = 0;
 
-  const matches = (u) => !query || ((u.username || "") + " " + (u.full_name || "")).toLowerCase().includes(query);
-  const tabItems = () => TABS.find((t) => t.id === tab).items();
-  const tagOf = (u) => (tags[u.pk] && tags[u.pk].tag) || "";
-  const passFilter = (u) => {
+  const matches = (u: any) => !query || ((u.username || "") + " " + (u.full_name || "")).toLowerCase().includes(query);
+  const tabItems = () => TABS.find((t) => t.id === tab)!.items();
+  const tagOf = (u: any) => (tags[u.pk] && tags[u.pk].tag) || "";
+  const passFilter = (u: any) => {
     switch (fltr) {
       case "private": return u.private === true;
       case "public": return u.private === false;
@@ -629,32 +551,33 @@ import "../adapters";
       default: return true;
     }
   };
-  const SORTERS = {
+  const SORTERS: Record<string, (a: any, b: any) => number> = {
     az: (a, b) => (a.username || "").localeCompare(b.username || ""),
     za: (a, b) => (b.username || "").localeCompare(a.username || ""),
     name: (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
   };
 
-  const tagEl = (text, kind) => {
+  const tagEl = (text: any, kind?: any) => {
     const s = document.createElement("span");
     s.className = "tag" + (kind ? " " + kind : "");
     s.textContent = text;
     return s;
   };
 
-  function buildRow(u) {
+  function buildRow(u: any) {
     const todo = tab === "todo";
     const row = document.createElement(todo ? "label" : "div");
     row.className = "row";
     row.dataset.pk = u.pk;
-    let cb = null;
+    let cb: HTMLInputElement | null = null;
     if (todo) {
       cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = selected.has(u.pk);
+      cb.setAttribute("aria-label", tr("aria_select_user", { u: u.username }));
       cb.onchange = () => {
-        if (cb.checked) {
-          if (selected.size >= maxSel()) { cb.checked = false; toast(capMsg()); return; }
+        if (cb!.checked) {
+          if (selected.size >= maxSel()) { cb!.checked = false; toast(capMsg()); return; }
           selected.add(u.pk);
         } else selected.delete(u.pk);
         saveSel();
@@ -670,7 +593,7 @@ import "../adapters";
     a.target = "_blank";
     a.rel = "noopener";
     a.textContent = u.username + (u.verified ? " ✔" : "");
-    a.onclick = (e) => e.stopPropagation();
+    a.onclick = (e: MouseEvent) => e.stopPropagation();
     const fn = document.createElement("div");
     fn.className = "fn";
     const note = tags[u.pk] && tags[u.pk].note;
@@ -690,16 +613,16 @@ import "../adapters";
       tb.textContent = "🏷";
       tb.title = tr("tip_tag");
       tb.setAttribute("aria-label", tr("tip_tag") + " @" + u.username);
-      tb.onclick = (e) => { e.preventDefault(); e.stopPropagation(); editTag(u); };
+      tb.onclick = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); editTag(u); };
       row.append(tb);
     };
-    const actionBtn = (label, tip, fn2) => {
+    const actionBtn = (label: any, tip: any, fn2: any) => {
       const b = document.createElement("button");
       b.className = "btn sm";
       b.textContent = label;
       b.title = tip;
       b.setAttribute("aria-label", label + " @" + u.username);
-      b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn2(b); };
+      b.onclick = (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); fn2(b); };
       row.append(b);
     };
 
@@ -714,7 +637,7 @@ import "../adapters";
       actionBtn(tr("btn_moveback"), tr("tip_moveback"), () => unkeepUsers([u.pk]));
     } else if (tab === "history") {
       if (u.refollowed) row.append(tagEl(tr("tag_refollowed"), "ok"));
-      else if (A.follow) actionBtn(tr("btn_refollow"), tr("tip_refollow"), (b) => refollow(u, b));
+      else if (A.follow) actionBtn(tr("btn_refollow"), tr("tip_refollow"), (b: HTMLButtonElement) => refollow(u, b));
     } else if (tab === "fans") {
       row.append(tagEl(tr("tag_followsyou"), "ok"));
     } else if (tab === "mutual") {
@@ -732,7 +655,7 @@ import "../adapters";
   }
 
   // An account that no longer exists (removed, banned, deactivated) leaves the list; it doesn't use up today's limit.
-  async function dropUnavailable(u, why?) {
+  async function dropUnavailable(u: any, why?: any) {
     users = users.filter((x) => x.pk !== u.pk);
     selected.delete(u.pk);
     gone.add(u.pk);
@@ -743,12 +666,7 @@ import "../adapters";
     log(`⚠ ${u.username} ${why || "is no longer available"}: removed from the list`, u.username);
     updateChrome();
   }
-  const withTimeout = (p, ms) => new Promise((res, rej) => {
-    const t = setTimeout(() => rej(Object.assign(new Error("Timed out"), { timeout: true })), ms);
-    p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
-  });
-
-  function refreshRow(u) {
+  function refreshRow(u: any) {
     const old = listEl.querySelector(`.row[data-pk="${esc(u.pk)}"]`);
     if (!old) return;
     const r = buildRow(u);
@@ -790,7 +708,7 @@ import "../adapters";
     else { appendMore(); fillView(); }
     updateChrome();
   }
-  function removeFromList(pk) {
+  function removeFromList(pk: string) {
     const i = filtered.findIndex((u) => u.pk === pk);
     if (i >= 0) { filtered.splice(i, 1); if (i < shown) shown--; }
     const el = listEl.querySelector(`.row[data-pk="${esc(pk)}"]`);
@@ -800,12 +718,12 @@ import "../adapters";
   }
   function syncChecks() { rows.forEach(({ cb }, pk) => (cb.checked = selected.has(pk))); }
 
-  function showTab(id) {
+  function showTab(id: string) {
     tab = id;
     renderList();
     listEl.scrollTop = 0;
   }
-  let qT;
+  let qT: any;
   $("q").oninput = () => { clearTimeout(qT); qT = setTimeout(() => { query = $("q").value.trim().toLowerCase(); renderList(); }, 140); };
   $("fltr").onchange = () => { fltr = $("fltr").value; renderList(); };
   $("srt").onchange = () => { srt = $("srt").value; renderList(); };
@@ -827,14 +745,14 @@ import "../adapters";
     $("stFollowers").textContent = fmtN(fol);
     $("stMutual").textContent = lists && lists.followers ? fmtN(mutual.length) : "–";
     $("stTodo").textContent = fmtN(users.length);
-    tabsEl.querySelectorAll(".tab").forEach((b) => {
-      const t = TABS.find((x) => x.id === b.dataset.id);
+    tabsEl.querySelectorAll(".tab").forEach((b: Element) => {
+      const t = TABS.find((x) => x.id === b.dataset.id)!;
       const on = t.id === tab;
       b.classList.toggle("on", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
-      b.tabIndex = on ? 0 : -1;
-      b.querySelector(".tl").textContent = tabLabel(t.id);
-      b.querySelector(".n").textContent = t.id === "stats" ? "" : fmtN(t.count());
+      (b as HTMLElement).tabIndex = on ? 0 : -1;
+      b.querySelector(".tl")!.textContent = tabLabel(t.id);
+      b.querySelector(".n")!.textContent = t.id === "stats" ? "" : fmtN(t.count());
     });
     const todo = tab === "todo";
     $("toolbar").style.display = tab === "stats" ? "none" : "flex";
@@ -891,11 +809,11 @@ import "../adapters";
 
 
   // ---------- protection (bulk selection skips these) ----------
-  let patterns = [], patSrc = null;
+  let patterns: RegExp[] = [], patSrc: string | null = null;
   const compilePatterns = () =>
-    (safety.protectPattern || "").split(",").map((x) => x.trim()).filter(Boolean)
-      .map((p) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$", "i"));
-  const protectReason = (u) => {
+    (safety.protectPattern || "").split(",").map((x: string) => x.trim()).filter(Boolean)
+      .map((p: string) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$", "i"));
+  const protectReason = (u: any) => {
     if (safety.protectVerified && u.verified) return tr("tag_verified");
     if (safety.protectPrivate && u.private === true) return tr("tag_private");
     if (safety.protectTagged && tagOf(u)) return tagLabel(tagOf(u));
@@ -907,17 +825,17 @@ import "../adapters";
     if (d > 0) { const x = seen.m[u.pk]; if (x && Date.now() - x < d * 864e5) return tr("tag_recent"); }
     return "";
   };
-  async function updateSeen(res) {
+  async function updateSeen(res: any) {
     const cur = (res.lists && res.lists.following) || [];
     if (!cur.length) return;
     const now = Date.now();
-    cur.forEach((u) => { if (!(u.pk in seen.m)) seen.m[u.pk] = seen.complete ? now : 0; });
+    cur.forEach((u: any) => { if (!(u.pk in seen.m)) seen.m[u.pk] = seen.complete ? now : 0; });
     if (res.lists.followingComplete) seen.complete = true;
     await chrome.storage.local.set({ [seenKey]: seen });
   }
 
   // ---------- labels + notes ----------
-  async function editTag(u) {
+  async function editTag(u: any) {
     const cur = tags[u.pk] || { tag: "", note: "" };
     const body = document.createElement("div");
     body.textContent = tr("tag_dlg_body");
@@ -947,11 +865,11 @@ import "../adapters";
   }
 
   // ---------- keep list (changes rows in place: no re-render, no flicker) ----------
-  const slimKeep = (u) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "", verified: !!u.verified, private: u.private, noPic: u.noPic });
-  function keepUsers(pks, quiet?) {
+  const slimKeep = (u: any) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "", verified: !!u.verified, private: u.private, noPic: u.noPic });
+  function keepUsers(pks: string[], quiet?: boolean) {
     let n = 0;
-    const did = [];
-    pks.forEach((pk) => {
+    const did: string[] = [];
+    pks.forEach((pk: string) => {
       const u = users.find((x) => x.pk === pk);
       if (!u) return;
       keep[pk] = u;
@@ -967,9 +885,9 @@ import "../adapters";
     updateChrome();
     if (!quiet) toast(tr("ts_kept", { n }), { label: tr("btn_undo"), fn: () => unkeepUsers(did, true) });
   }
-  function unkeepUsers(pks, quiet?) {
+  function unkeepUsers(pks: string[], quiet?: boolean) {
     let n = 0;
-    pks.forEach((pk) => {
+    pks.forEach((pk: string) => {
       const u = keep[pk];
       if (!u) return;
       delete keep[pk];
@@ -985,7 +903,7 @@ import "../adapters";
   keepBtn.onclick = () => keepUsers([...selected]);
 
   // ---------- re-follow (Unfollowed tab) ----------
-  async function refollow(u, btn) {
+  async function refollow(u: any, btn: HTMLButtonElement) {
     if (!A.follow) return;
     btn.disabled = true;
     btn.textContent = tr("btn_refollowing");
@@ -1002,128 +920,49 @@ import "../adapters";
     } catch (e) {
       btn.disabled = false;
       btn.textContent = tr("btn_refollow");
-      log(`✗ re-follow ${u.username}: ${e.message}`, u.username);
-      toast(tr("ts_refollow_fail", { e: e.message }));
+      log(`✗ re-follow ${u.username}: ${(e as Error).message}`, u.username);
+      toast(tr("ts_refollow_fail", { e: (e as Error).message }));
     }
   }
 
   // ---------- export / import ----------
-  const csvCell = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
-  const download = (name, text, type) => {
-    const url = URL.createObjectURL(new Blob([text], { type }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
-  };
-  const iso = (t) => new Date(t).toISOString();
-  $("expCsv").onclick = () => {
-    const items = TABS.find((x) => x.id === tab).items();
-    if (!items.length) return toast(tr("ts_nothing"));
-    const extra = tab === "history" ? [(u) => iso(u.at), (u) => (u.refollowed ? "yes" : "no")] : tab === "changes" ? [(u) => u.type, (u) => iso(u.at)] : [];
-    const head = ["username", "full_name", "profile_url", "label", "note", ...(tab === "history" ? ["unfollowed_at", "re_followed"] : tab === "changes" ? ["change", "at"] : [])];
-    const lines = [head.map(csvCell).join(",")].concat(
-      items.map((u) => [u.username, u.full_name || "", A.profileUrl(u), tagOf(u) ? tagLabel(tagOf(u)) : "", (tags[u.pk] && tags[u.pk].note) || "", ...extra.map((f) => f(u))].map(csvCell).join(","))
-    );
-    download(`unfollow-guard-${A.id}-${tab}.csv`, "\ufeff" + lines.join("\r\n"), "text/csv");
-    toast(tr("ts_exported", { n: items.length }));
-  };
-  $("expJson").onclick = () => {
-    const kept = Object.values(keep).map((u) => ({ ...slimKeep(u), tag: tagOf(u), note: (tags[u.pk] && tags[u.pk].note) || "" }));
-    if (!kept.length) return toast(tr("ts_nothing"));
-    const data = { app: "unfollow-guard", version: 2, platform: A.id, account: ACCT, exportedAt: new Date().toISOString(), kept };
-    download(`unfollow-guard-${A.id}-kept-backup.json`, JSON.stringify(data, null, 2), "application/json");
-    toast(tr("ts_exported", { n: kept.length }));
-  };
-  const readText = (f) => (f.text ? f.text() : new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsText(f); }));
-  function importKept(text) {
-    let entries = [];
-    try {
-      const j = JSON.parse(text);
-      const arr = Array.isArray(j) ? j : j.kept || j.users || [];
-      entries = arr.map((x) => (typeof x === "string" ? { username: x } : x));
-    } catch {
-      entries = text.split(/[\r\n,;]+/).map((x) => x.trim().replace(/^"|"$/g, "").replace(/^@/, "")).filter((x) => x && !/^(username|user|name)$/i.test(x)).map((x) => ({ username: x }));
-    }
-    const byName = new Map();
-    [...users, ...Object.values(keep), ...((lists && lists.following) || []), ...hist].forEach((u) => { if (u && u.username) byName.set(String(u.username).toLowerCase(), u); });
-    let added = 0, missing = 0;
-    entries.forEach((e) => {
-      const found = e.pk ? e : byName.get(String(e.username || "").toLowerCase());
-      if (!found || !found.pk) { missing++; return; }
-      if (e.tag || e.note) tags[found.pk] = { tag: TAG_IDS.includes(e.tag) ? e.tag : "", note: String(e.note || "") };
-      if (keep[found.pk]) return;
-      keep[found.pk] = slimKeep(found);
-      selected.delete(found.pk);
-      added++;
-    });
-    users = users.filter((x) => !keep[x.pk]);
-    saveKeep();
-    saveTags();
-    saveSel();
-    renderList();
-    toast(`Imported ${added} kept account${added === 1 ? "" : "s"}${missing ? `; ${missing} not found in your saved lists (scan first)` : ""}.`);
-  }
+  const exporter = createExportTools({
+    adapter: A,
+    account: ACCT,
+    state: {
+      get users() { return users; },
+      set users(v) { users = v; },
+      get keep() { return keep; },
+      get tags() { return tags; },
+      get selected() { return selected; },
+      get lists() { return lists; },
+      get hist() { return hist; },
+    },
+    ui: {
+      toast,
+      tr,
+      renderList: () => renderList(),
+      saveKeep: () => saveKeep(),
+      saveTags: () => saveTags(),
+      saveSel: () => saveSel(),
+      slimKeep: (u) => slimKeep(u),
+      tagOf: (u) => tagOf(u),
+      tagLabel: (id) => tagLabel(id),
+      itemsFor: (t) => TABS.find((x) => x.id === t)!.items(),
+    },
+    tagIds: TAG_IDS,
+  });
+  $("expCsv").onclick = () => exporter.exportCsv(tab);
+  $("expJson").onclick = () => exporter.exportJson();
   $("impKept").onclick = () => $("fileIn").click();
   $("fileIn").onchange = async () => {
     const f = $("fileIn").files[0];
     $("fileIn").value = "";
-    if (f) importKept(await readText(f));
+    if (f) exporter.importKept(await exporter.readText(f));
   };
 
   // ---------- statistics ----------
-  function renderStats() {
-    listEl.replaceChildren();
-    rows.clear();
-    const fing = scanCache && typeof scanCache.following === "number" ? scanCache.following : lists && lists.following ? lists.following.length : null;
-    const fol = scanCache && typeof scanCache.followers === "number" ? scanCache.followers : lists && lists.followers ? lists.followers.length : null;
-    const now = Date.now(), DAY = 864e5;
-    const rate = lists && lists.followers && fing ? Math.round((mutual.length / fing) * 100) + "%" : "–";
-    const unf7 = hist.filter((h) => now - h.at < 7 * DAY).length;
-    const gained = flw.filter((e) => e.type === "new" && now - e.at < 30 * DAY).length;
-    const lost = flw.filter((e) => e.type === "lost" && now - e.at < 30 * DAY).length;
-    const cards = [
-      [rate, "Follow-back rate", "of the accounts you follow"], [fmtN(fing), "Following", "accounts"],
-      [fmtN(fol), "Followers", "accounts"], [lists && lists.followers ? fmtN(fans.length) : "–", "Fans", "follow you, you don't follow back"],
-      [fmtN(hist.length), "Unfollowed", "all time"], [fmtN(unf7), "Unfollowed", "last 7 days"],
-      [A.followerDiff ? fmtN(gained) : "–", "New followers", "last 30 days"], [A.followerDiff ? fmtN(lost) : "–", "Lost followers", "last 30 days"],
-    ];
-    const wrap = document.createElement("div");
-    wrap.className = "stats2";
-    const grid = document.createElement("div");
-    grid.className = "cards";
-    cards.forEach(([v, l, sub]) => {
-      const d = document.createElement("div");
-      d.className = "card2";
-      const b = document.createElement("b"); b.textContent = v;
-      const s1 = document.createElement("span"); s1.textContent = l;
-      const s2 = document.createElement("small"); s2.textContent = sub;
-      d.append(b, s1, s2);
-      grid.append(d);
-    });
-    const title = document.createElement("div");
-    title.className = "chart-title";
-    title.textContent = "Unfollowed per day (last 14 days)";
-    const bars = document.createElement("div");
-    bars.className = "bars";
-    const days = [];
-    for (let k = 13; k >= 0; k--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - k); days.push(d); }
-    const counts = days.map((d) => hist.filter((h) => { const x = new Date(h.at); x.setHours(0, 0, 0, 0); return x.getTime() === d.getTime(); }).length);
-    const max = Math.max(1, ...counts);
-    days.forEach((d, i) => {
-      const col = document.createElement("div");
-      col.className = "bcol";
-      col.title = `${d.toLocaleDateString()}: ${counts[i]}`;
-      const n = document.createElement("span"); n.className = "bn"; n.textContent = String(counts[i] || "");
-      const bar = document.createElement("i"); bar.style.height = Math.max(counts[i] ? 4 : 2, (counts[i] / max) * 70) + "px";
-      const lab = document.createElement("span"); lab.className = "bl"; lab.textContent = d.getDate();
-      col.append(n, bar, lab);
-      bars.append(col);
-    });
-    wrap.append(grid, title, bars);
-    listEl.append(wrap);
-  }
+  const renderStats = () => renderStatsView({ listEl, rows, scanCache, lists, mutual, fans, hist, flw, followerDiff: A.followerDiff, fmtN });
 
 
   // ---------- daily limit: reset / clear / change ----------
@@ -1135,8 +974,8 @@ import "../adapters";
     info.textContent = tr("lim_info", { used: capInfo.used, cap: base, at: safety.dayResetTime, t: NFB.fmtHM(NFB.msToMidnight()) });
     const grid = document.createElement("div");
     grid.style.cssText = "display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center;margin-top:12px";
-    const field = (label, input) => { const l = document.createElement("label"); l.textContent = label; l.style.color = "var(--fg)"; grid.append(l, input); return input; };
-    const num = (v, min, max) => { const i = document.createElement("input"); i.type = "number"; i.min = min; i.max = max; i.value = v; i.className = "field snum"; return i; };
+    const field = (label: string, input: HTMLInputElement) => { const l = document.createElement("label"); l.textContent = label; l.style.color = "var(--fg)"; grid.append(l, input); return input; };
+    const num = (v: number, min: number, max: number) => { const i = document.createElement("input"); i.type = "number"; i.min = String(min); i.max = String(max); i.value = String(v); i.className = "field snum"; return i; };
     const usedIn = field(tr("lim_used"), num(capInfo.used, 0, 1000));
     const capIn = field(tr("lim_title"), num(base, 1, 100));
     const atIn = field(tr("lim_reset_at"), Object.assign(document.createElement("input"), { type: "time", value: safety.dayResetTime || "00:00", className: "field" }));
@@ -1144,7 +983,7 @@ import "../adapters";
     actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px";
     const resetBtn = document.createElement("button");
     resetBtn.type = "button"; resetBtn.className = "btn sm"; resetBtn.textContent = tr("btn_reset_counter");
-    resetBtn.onclick = () => { usedIn.value = 0; };
+    resetBtn.onclick = () => { usedIn.value = "0"; };
     actions.append(resetBtn);
     if (coolUntil > Date.now()) {
       const coolBtn = document.createElement("button");
@@ -1186,14 +1025,14 @@ import "../adapters";
   }
   setInterval(refreshButtons, 1500);
 
-  const mergeLists = (cur, add) => {
+  const mergeLists = (cur: any, add: any) => {
     const out = { ...(cur || {}) };
     Object.keys(add || {}).forEach((k) => { if (add[k] !== undefined) out[k] = add[k]; });
     return out;
   };
-  const slim = (u) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "" });
+  const slim = (u: any) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "" });
   // Compares this scan's followers with the previous snapshot: who unfollowed you, who started following you.
-  async function recordFollowerChanges(res) {
+  async function recordFollowerChanges(res: any) {
     const L = res.lists;
     if (!A.followerDiff || !L || !Array.isArray(L.followers)) return "";
     if (L.followersComplete === false) return " Your followers list looked incomplete, so follower changes weren't recorded this time.";
@@ -1201,11 +1040,11 @@ import "../adapters";
     const snap = (await chrome.storage.local.get<Record<string, any>>(snapKey))[snapKey];
     let msg = " Follower baseline saved: future scans will show who unfollowed you.";
     if (snap && snap.users && snap.users.length) {
-      const curSet = new Set(cur.map((u) => u.pk)), oldSet = new Set(snap.users.map((u) => u.pk));
-      const lostU = snap.users.filter((u) => !curSet.has(u.pk));
-      const gainedU = cur.filter((u) => !oldSet.has(u.pk));
+      const curSet = new Set(cur.map((u: any) => u.pk)), oldSet = new Set(snap.users.map((u: any) => u.pk));
+      const lostU = snap.users.filter((u: any) => !curSet.has(u.pk));
+      const gainedU = cur.filter((u: any) => !oldSet.has(u.pk));
       const at = Date.now();
-      flw = flw.concat(lostU.map((u) => ({ ...u, type: "lost", at })), gainedU.map((u) => ({ ...u, type: "new", at }))).slice(-2000);
+      flw = flw.concat(lostU.map((u: any) => ({ ...u, type: "lost", at })), gainedU.map((u: any) => ({ ...u, type: "new", at }))).slice(-2000);
       await chrome.storage.local.set({ [flwKey]: flw });
       msg = ` Since ${NFB.fmtWhen(snap.at)}: ${gainedU.length} new follower${gainedU.length === 1 ? "" : "s"}, ${lostU.length} unfollowed you.`;
       if (lostU.length) toast(`${lostU.length} ${lostU.length === 1 ? "person" : "people"} unfollowed you. See the Changes tab.`);
@@ -1242,17 +1081,17 @@ import "../adapters";
       if (res.complete) await chrome.storage.local.set({ [allowKey]: false });
       const all = res.scan.users || [];
       const recent = recentlyUnfollowed();
-      users = all.filter((u) => !keep[u.pk] && !recent.has(u.pk));
-      const lag = all.filter((u) => recent.has(u.pk) && !keep[u.pk]).length;
+      users = all.filter((u: any) => !keep[u.pk] && !recent.has(u.pk));
+      const lag = all.filter((u: any) => recent.has(u.pk) && !keep[u.pk]).length;
       const hidden = all.length - users.length - lag;
-      const have = new Set(users.map((u) => u.pk));
-      selected = new Set([...selected].filter((pk) => have.has(pk)));
+      const have = new Set(users.map((u: any) => u.pk));
+      selected = new Set([...selected].filter((pk: string) => have.has(pk)));
       saveSel();
       derive();
       showTab("todo");
       setStatus(res.message + diffMsg + (hidden ? ` ${hidden} kept account(s) hidden.` : "") + (lag ? ` ${lag} account(s) you unfollowed recently are still in Instagram's list (it lags by a few minutes) and were hidden.` : ""));
     } catch (e) {
-      setStatus("Error: " + e.message);
+      setStatus("Error: " + (e as Error).message);
     }
     scanning = false;
     refreshButtons();
@@ -1262,7 +1101,7 @@ import "../adapters";
   const todoFirst = () => { if (tab !== "todo") showTab("todo"); };
   const pickable = () => filtered.filter((u) => !protectReason(u));
   // Selects up to `want` accounts, never more than what is left of today's limit, and explains it when that is fewer than the limit.
-  async function selectBulk(want) {
+  async function selectBulk(want: number) {
     todoFirst();
     await refreshCap();
     const pool = pickable();
@@ -1280,7 +1119,7 @@ import "../adapters";
   $("clr").onclick = () => { selected.clear(); syncChecks(); saveSel(); updateChrome(); };
 
   // ---------- progress card ----------
-  let rcUser = null, hideT;
+  let rcUser: any = null, hideT: ReturnType<typeof setTimeout> | undefined;
   function banner({ user, title, sub, pct, tone, spin }: any) {
     clearTimeout(hideT);
     $("runcard").style.display = "block";
@@ -1297,7 +1136,7 @@ import "../adapters";
     b.className = "rc-badge " + (spin ? "spin" : tone || "");
     b.textContent = spin ? "" : tone === "ok" ? "✓" : tone === "warn" ? "!" : "";
   }
-  function drawRun(run, mode, u?) {
+  function drawRun(run: any, mode: string, u?: any) {
     const pct = run.total ? (run.done / run.total) * 100 : 0;
     if (mode === "wait" && run.last) {
       const l = run.last;
@@ -1313,7 +1152,7 @@ import "../adapters";
       banner({ user: u, title: tr("rc_unfollowing", { u: u.username }), sub: tr(run.retried ? "rc_retry" : "rc_sub_n", { i: run.idx + 1, total: run.queue.length }), pct, spin: true });
     }
   }
-  function finishBanner(msg, run, tone) {
+  function finishBanner(msg: string, run: any, tone?: string) {
     banner({
       user: run && run.last ? run.last : rcUser,
       title: msg,
@@ -1333,242 +1172,50 @@ import "../adapters";
       return o;
     } catch { return "x"; }
   })();
-  const STALE_MS = 5 * 60 * 1000;
-  const loadRun = async () => (await chrome.storage.local.get<Record<string, any>>(runKey))[runKey] || null;
-  const saveRun = (r) => { r.beat = Date.now(); return chrome.storage.local.set({ [runKey]: r }); };
-  // only this loop writes the run; Stop uses its own key, so nothing can be overwritten
-  const patchRun = async (patch) => {
-    const r = await loadRun();
-    if (!r) return null;
-    Object.assign(r, patch);
-    await saveRun(r);
-    return r;
+  // Bridge the panel's state variables to the batch runner: accessors keep both views in sync.
+  const batchState = {
+    get users() { return users; },
+    set users(v) { users = v; },
+    get selected() { return selected; },
+    set selected(v) { selected = v; },
+    get gone() { return gone; },
+    set gone(v) { gone = v; },
+    get hist() { return hist; },
+    set hist(v) { hist = v; },
+    get failed() { return failed; },
+    set failed(v) { failed = v; },
+    get safety() { return safety; },
+    get capInfo() { return capInfo; },
+    get coolUntil() { return coolUntil; },
+    set coolUntil(v) { coolUntil = v; },
+    get runNextAt() { return runNextAt; },
+    set runNextAt(v) { runNextAt = v; },
+    get tab() { return tab; },
   };
-  const endRun = () => chrome.storage.local.remove(runKey);
-  const samePage = (url) => {
-    try {
-      const p = (x) => new URL(x, location.href).pathname.replace(/\/+$/, "").toLowerCase();
-      return p(url) === p(location.href);
-    } catch { return true; }
-  };
-  const sleepStop = async (ms) => {
-    const t0 = Date.now();
-    while (Date.now() - t0 < ms && !stop) await NFB.sleep(Math.min(250, ms));
-  };
-  const setRunning = (on) => {
+  const setRunning = (on: boolean) => {
     unfollowing = on;
     if (on) { stopBtn.style.display = ""; stopBtn.disabled = false; delete stopBtn.dataset.state; stopBtn.textContent = tr("btn_stop"); }
     refreshButtons();
     updateChrome();
   };
+  const batch = createBatchRunner({
+    state: batchState as any,
+    ui: {
+      drawRun, banner, finishBanner, setRunning, setStatus, log, toast, notify, derive,
+      refreshRow, removeFromList, dropUnavailable, refreshCap, maxSel,
+    },
+    adapter: A,
+    keys: { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey },
+    owner: OWNER,
+  });
   const doStop = async () => {
     if (schedPending) { schedPending.cancel = true; return; }
-    stop = true;
     stopBtn.disabled = true;
     stopBtn.dataset.state = "stopping";
     stopBtn.textContent = tr("btn_stopping");
-    await chrome.storage.local.set({ [stopKey]: Date.now() });
+    await batch.requestStop();
   };
   stopBtn.onclick = doStop;
-
-  async function runLoop() {
-    if (unfollowing) return;
-    let run = await loadRun();
-    if (!run || run.owner !== OWNER) return;
-    stop = !!(await chrome.storage.local.get<Record<string, any>>(stopKey))[stopKey];
-    setRunning(true);
-    if (run.last && run.nextAt) drawRun(run, "wait");
-    let endMsg = "", tone = "ok";
-
-    try {
-      while (true) {
-        run = await loadRun();
-        if (!run) { endMsg = "Batch ended"; tone = "warn"; break; }
-        if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-        if (run.idx >= run.queue.length) {
-          const pending = run.retry || [];
-          if (!run.retried && pending.length) {                 // second pass over the accounts that failed
-            run = (await patchRun({ queue: pending, idx: 0, retry: [], retried: true })) || run;
-            log(`Retrying ${pending.length} account(s) that failed`);
-            continue;
-          }
-          endMsg = pending.length ? tr("rc_finished_f", { n: run.done, f: pending.length }) : tr("rc_finished", { n: run.done });
-          if (pending.length) tone = "warn";
-          break;
-        }
-        const s0 = await NFB.getSettings();
-        const s = run.forceUI ? { ...s0, igMethod: "ui" } : s0;
-
-        // wait out the delay since the previous unfollow (this also works across page loads)
-        let ticks = 0;
-        while (run.nextAt && Date.now() < run.nextAt && !stop) {
-          runNextAt = run.nextAt;
-          drawRun(run, "wait");
-          await NFB.sleep(500);
-          if (++ticks % 30 === 0) await patchRun({});
-        }
-        runNextAt = 0;
-        if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-
-        // active hours: wait until the window opens (the tab has to stay open)
-        {
-          let sNow = s0, t2 = 0;
-          while (!NFB.inActiveHours(sNow) && !stop) {
-            banner({
-              user: run.last || rcUser,
-              title: tr("rc_paused"),
-              sub: tr("rc_resumes", { from: sNow.activeFrom, t: NFB.fmtHM(NFB.msToActiveStart(sNow)) }),
-              pct: run.total ? (run.done / run.total) * 100 : 0,
-              tone: "warn",
-            });
-            await NFB.sleep(1000);
-            if (++t2 % 15 === 0) { await patchRun({}); sNow = await NFB.getSettings(); }
-          }
-        }
-        if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-
-        await refreshCap();
-        if (maxSel() <= 0) { endMsg = tr("rc_cap", { n: capInfo.cap }); tone = "warn"; break; }
-
-        const q = run.queue[run.idx];
-        let u = { ...(users.find((x) => x.pk === q.pk) || {}), ...q };   // the queue entry may carry a newer username
-
-        // Browser-click method: look the account up first. A renamed account is opened under its new name; a removed or
-        // banned one is skipped at once instead of waiting for a profile page that will never load.
-        if (A.resolve && A.navigateTo && A.navigateTo(u, s) && run.navFor !== run.idx) {
-          let rr: any = {}, pre: any = null;
-          try { rr = await A.resolve(u, s); } catch (e) { pre = e; }
-          if (pre && pre.fatal) {
-            endMsg = `Stopped: ${pre.message}`;
-            tone = "warn";
-            if (pre.block && s.cooldownHours > 0) {
-              coolUntil = Date.now() + s.cooldownHours * 3600000;
-              await chrome.storage.local.set({ [coolKey]: coolUntil });
-              endMsg += ` Cool-down started: unfollowing is paused for ${s.cooldownHours}h.`;
-            }
-            break;
-          }
-          if (rr.gone) {
-            await dropUnavailable(u);
-            const moreAfter = run.idx + 1 < run.queue.length || (!run.retried && (run.retry || []).length > 0);
-            run = (await patchRun({ idx: run.idx + 1, nextAt: moreAfter ? Date.now() + (NFB.skipDelay != null ? NFB.skipDelay : 1500) : 0 })) || run;
-            continue;
-          }
-          if (rr.username && rr.username !== u.username) {
-            log(`↻ ${u.username} is now @${rr.username}`, u.username);
-            const queue = run.queue.slice();
-            queue[run.idx] = { ...queue[run.idx], username: rr.username };
-            run = (await patchRun({ queue })) || run;
-            const real = users.find((x) => x.pk === u.pk);
-            if (real) real.username = rr.username;
-            u = { ...u, username: rr.username };
-          }
-        }
-
-        // Browser-click method: go to the account's profile first (the page reloads and this loop resumes there).
-        const target = A.navigateTo ? A.navigateTo(u, s) : null;
-        if (target && !samePage(target) && run.navFor !== run.idx) {
-          await patchRun({ navFor: run.idx });
-          drawRun(run, "open", u);
-          location.assign(target);
-          return;
-        }
-
-        drawRun(run, "work", u);
-        if (target) await sleepStop(NFB.rand(2000, 4000));
-        if (stop) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-
-        let ok = false, errMsg = "", fatal = false, blocked = false, skip = false;
-        try {
-          await withTimeout(A.unfollow(u, s), NFB.unfollowTimeout || 90000);   // never wait forever for one account
-          ok = true;
-          log(`✓ ${u.username} unfollowed`, u.username);
-        } catch (e) {
-          if (e.stopped) { endMsg = tr("rc_stopped"); tone = "warn"; break; }
-          errMsg = e.message;
-          log(`✗ ${u.username} — ${e.message}`, u.username);
-          if (e.useUI && !run.forceUI) {
-            await patchRun({ forceUI: true });
-            log("Direct API was rejected: switching to browser clicks for the rest of this batch");
-            continue; // retry this same account with the browser-click method
-          }
-          fatal = !!e.fatal;
-          blocked = !!e.block;
-          skip = !!e.skip;
-        }
-
-        const fails = ok ? 0 : skip ? (run.fails || 0) : (run.fails || 0) + 1;   // a missing account isn't a sign the batch is failing
-        if (!ok && (fatal || fails >= 3)) {
-          run = (await patchRun({ last: { username: u.username, pic: u.pic || "", ok: false } })) || run;
-          endMsg = fatal ? `Stopped: ${errMsg}` : `Stopped after 3 failures in a row: ${errMsg}`;
-          tone = "warn";
-          if (blocked && s.cooldownHours > 0) {
-            coolUntil = Date.now() + s.cooldownHours * 3600000;
-            await chrome.storage.local.set({ [coolKey]: coolUntil });
-            endMsg += ` Cool-down started: unfollowing is paused for ${s.cooldownHours}h.`;
-          }
-          break;
-        }
-        if (ok) {
-          await NFB.bumpDaily(dayKey);
-          users = users.filter((x) => x.pk !== u.pk);
-          selected.delete(u.pk);
-          gone.add(u.pk);
-          hist.push({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "", at: Date.now() });
-          if (hist.length > 5000) hist = hist.slice(-5000);
-          derive();
-          delete failed[u.pk];
-          if (tab === "todo") removeFromList(u.pk);
-          await chrome.storage.local.set({ [goneKey]: [...gone], [selKey]: [...selected], [histKey]: hist, [failKey]: failed });
-          await refreshCap();
-        } else if (skip) {
-          await dropUnavailable(u);
-        } else {
-          failed[u.pk] = errMsg;                                // stays in the list, marked, and is tried once more after this pass
-          await chrome.storage.local.set({ [failKey]: failed });
-          if (tab === "todo") refreshRow(u);
-        }
-        const retry = !ok && !skip ? (run.retry || []).concat({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "" }) : run.retry || [];
-        const nextIdx = run.idx + 1;
-        const more = nextIdx < run.queue.length || (!run.retried && retry.length > 0);
-        const nextAt = more ? Date.now() + Math.round(NFB.rand(s.minDelay, s.maxDelay)) * 1000 : 0;
-        run = (await patchRun({
-          idx: nextIdx, done: run.done + (ok ? 1 : 0), fails, nextAt, retry,
-          last: { username: u.username, pic: u.pic || "", ok },
-        })) || run;
-      }
-    } catch (e) {
-      endMsg = "Error: " + e.message;
-      tone = "warn";
-      log(endMsg);
-    }
-
-    const finalRun = await loadRun();
-    log(endMsg);
-    await endRun();
-    await chrome.storage.local.remove(stopKey);
-    const byUser = endMsg === tr("rc_stopped");
-    stop = false;
-    runNextAt = 0;
-    setRunning(false);
-    finishBanner(endMsg, finalRun, tone);
-    setStatus(endMsg);
-    if (finalRun && !byUser && (finalRun.done > 0 || tone === "warn")) {
-      notify(tone === "ok" ? tr("nf_finished") : tr("nf_stopped"), `${endMsg} (${finalRun.done}/${finalRun.total})`);
-    }
-  }
-
-  async function beginBatch(chosen, auto) {
-    await chrome.storage.local.remove(stopKey);
-    stop = false;
-    await saveRun({
-      owner: OWNER,
-      queue: chosen.map((u) => ({ pk: u.pk, username: u.username, full_name: u.full_name || "", pic: u.pic || "" })),
-      idx: 0, done: 0, fails: 0, total: chosen.length, nextAt: 0, navFor: -1, forceUI: false, last: null,
-    });
-    log(`${auto ? "Starting scheduled batch" : "Starting batch"} of ${chosen.length}`);
-    runLoop();
-  }
 
   delBtn.onclick = async () => {
     if (unfollowing) return;
@@ -1617,7 +1264,7 @@ import "../adapters";
     }
     const ok = await ask({ title: tr("dlg_unf_title", { n: chosen.length }), body, confirmText: tr("btn_unfollow_n", { n: chosen.length }), cancelText: tr("btn_cancel"), danger: true });
     if (!ok) return;
-    beginBatch(chosen, false);
+    void batch.beginBatch(chosen, false);
   };
 
   // ---------- daily schedule (needs an open Instagram tab; shows a cancellable countdown first) ----------
@@ -1650,7 +1297,7 @@ import "../adapters";
       return;
     }
     notify("Unfollow Guard · " + A.label, tr("sc_sub", { n: pool.length }));
-    beginBatch(pool, true);
+    void batch.beginBatch(pool, true);
   }
   setInterval(schedCheck, 30000);
   NFB.schedCheck = schedCheck; // exposed for the automated tests
@@ -1669,8 +1316,8 @@ import "../adapters";
   const maybeTour = () => { if (!onboarded) { onboarded = true; showTour(); } };
 
   // ---------- self-check + debug report ----------
-  const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h.toString(16); };
-  async function copyText(text) {
+  const hash = (str: string) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h.toString(16); };
+  async function copyText(text: string) {
     try { await navigator.clipboard.writeText(text); return true; } catch {}
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -1682,7 +1329,7 @@ import "../adapters";
     ta.remove();
     return ok;
   }
-  function buildReport(checkLines) {
+  function buildReport(checkLines: string[] | null) {
     const man: any = (chrome.runtime && chrome.runtime.getManifest && chrome.runtime.getManifest()) || {};
     const keys = ["igMethod", "cooldownHours", "activeEnabled", "activeFrom", "activeTo", "protectVerified", "protectPrivate", "protectTagged", "protectPattern",
       "protectRecentDays", "warmupEnabled", "warmupStart", "warmupStep", "scheduleEnabled", "scheduleTime", "scheduleCount", "minDelay", "maxDelay", "lang", "theme"];
@@ -1708,9 +1355,9 @@ import "../adapters";
   }
   async function selfCheck() {
     let res;
-    try { res = A.diagnose ? await A.diagnose(safety) : []; } catch (e) { res = [{ ok: false, name: "Self-check", detail: e.message }]; }
+    try { res = A.diagnose ? await A.diagnose(safety) : []; } catch (e) { res = [{ ok: false, name: "Self-check", detail: (e as Error).message }]; }
     try { res = res.concat(await picCheck()); } catch {}
-    const lines = res.map((r) => `${r.ok === true ? "✓" : r.ok === false ? "✗" : "•"} ${r.name}${r.detail ? " — " + r.detail : ""}`);
+    const lines = res.map((r: any) => `${r.ok === true ? "✓" : r.ok === false ? "✗" : "•"} ${r.name}${r.detail ? " — " + r.detail : ""}`);
     const body = document.createElement("pre");
     body.style.cssText = "white-space:pre-wrap;font:12px/1.55 ui-monospace,Menlo,Consolas,monospace;margin:0;max-height:280px;overflow:auto;color:var(--fg)";
     body.textContent = lines.join("\n") || "–";
@@ -1722,7 +1369,7 @@ import "../adapters";
   $("dbgBtn").onclick = async () => toast(tr((await copyText(buildReport(null))) ? "ts_copied" : "ts_nothing"));
 
   // ---------- keyboard ----------
-  panel.addEventListener("keydown", (e) => {
+  panel.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.defaultPrevented || shadow.querySelector(".overlay")) return;
     if (e.key === "Escape") { panel.style.display = "none"; return; }
     const tg = (shadow.activeElement && shadow.activeElement.tagName) || "";
@@ -1738,7 +1385,7 @@ import "../adapters";
   }
 
   // ---------- enable / disable ----------
-  function applyEnabled(on) {
+  function applyEnabled(on: boolean) {
     enabled = on;
     host.style.display = on ? "" : "none";
     if (!on) {
@@ -1760,7 +1407,7 @@ import "../adapters";
     if (ch[coolKey]) coolUntil = Number(ch[coolKey].newValue) || 0;
     if (ch[scanKey]) scanCache = ch[scanKey].newValue || null;
     if (ch[scanKey] || ch[allowKey]) refreshButtons();
-    if (ch[stopKey] && ch[stopKey].newValue) stop = true;
+    if (ch[stopKey] && ch[stopKey].newValue) void batch.requestStop(false);
   });
 
   // ---------- init ----------
@@ -1794,9 +1441,9 @@ import "../adapters";
       await chrome.storage.local.set({ [snapKey]: { at: (scanCache && scanCache.at) || Date.now(), users: lists.followers.map(slim) } });
     }
     const recentGone = recentlyUnfollowed();
-    users = ((scanCache && scanCache.users) || []).filter((u) => !keep[u.pk] && !gone.has(u.pk) && !recentGone.has(u.pk));
-    const have = new Set(users.map((u) => u.pk));
-    selected = new Set((o[selKey] || []).filter((pk) => have.has(pk)));
+    users = ((scanCache && scanCache.users) || []).filter((u: any) => !keep[u.pk] && !gone.has(u.pk) && !recentGone.has(u.pk));
+    const have = new Set(users.map((u: any) => u.pk));
+    selected = new Set((o[selKey] || []).filter((pk: string) => have.has(pk)));
     if (o.nfb_opts) { $("lim").value = o.nfb_opts.lim; $("start").value = o.nfb_opts.start; }
     derive();
     await refreshCap();
@@ -1806,11 +1453,6 @@ import "../adapters";
     refreshButtons();
 
     // A batch started in this tab keeps going after the page reloads (browser-click method).
-    const run = await loadRun();
-    if (run) {
-      const fresh = Date.now() - run.beat < STALE_MS;
-      if (run.owner === OWNER && fresh && enabled) runLoop();
-      else if (!fresh || (run.owner === OWNER && !enabled)) await endRun(); // abandoned batch
-    }
+    await batch.resume(enabled);
   })();
 })();

@@ -109,8 +109,9 @@ export interface RunState {
   nextAt?: number;
   beat?: number;
   forceUI?: boolean;
+  navFor?: number;
   total?: number;
-  last?: { username: string; pic: string; ok: boolean };
+  last?: { username: string; pic: string; ok: boolean } | null;
 }
 
 export interface TagEntry {
@@ -157,7 +158,7 @@ export interface Adapter {
   scanLabel: () => string;
   profileUrl: (u: User) => string;
   scanConfirm?: (opts: Record<string, unknown>) => string;
-  diagnose?: () => Promise<Array<{ ok: boolean | null; label: string; detail?: string }>>;
+  diagnose?: (s?: Settings) => Promise<Array<{ ok: boolean | null; name: string; detail?: string }>>;
   [key: string]: unknown;
 }
 
