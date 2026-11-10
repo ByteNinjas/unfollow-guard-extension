@@ -175,6 +175,9 @@ importers:
       '@types/chrome':
         specifier: ^0.3.7
         version: 0.3.7
+      '@types/jsdom':
+        specifier: ^30.0.0
+        version: 30.0.0
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -378,8 +381,14 @@ packages:
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
 
+  '@types/jsdom@30.0.0':
+    resolution: {integrity: sha512-uAHGxujGE0cDaKGdK28zgDotFtNA7MKq5DXl8LrfdxdCI8VHcg15oJz+amHTChPNI5JpgEPQWc2xFdrw3em/nQ==}
+
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
+
+  '@types/tough-cookie@4.0.5':
+    resolution: {integrity: sha512-/Ad8+nIOV7Rl++6f1BdKxFSMgmoqEoYbHRpPcx3JEfv8VRsQe9Z4mCXeJBzxs7mbHY/XOZZuXlRNfhpVPbs6ZA==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -1307,9 +1316,18 @@ snapshots:
 
   '@types/har-format@1.2.16': {}
 
+  '@types/jsdom@30.0.0':
+    dependencies:
+      '@types/node': 26.6.6
+      '@types/tough-cookie': 4.0.5
+      parse5: 8.1.1
+      undici-types: 8.9.0
+
   '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
+
+  '@types/tough-cookie@4.0.5': {}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
