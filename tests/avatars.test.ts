@@ -36,7 +36,7 @@ function boot(acct: string, users: any[]) {
   // an <img> whose load result depends on the address (jsdom doesn't load pictures)
   (w as any).Image = function () {
     const el = w.document.createElement("img");
-    Object.defineProperty(el, "src", { get: () => el.getAttribute("src"), set: (v: string) => { srcs.push(v); el.setAttribute("src", v); setTimeout(() => { const good = /good|^data:/.test(v); const fn = good ? el.onload : el.onerror; fn && fn(); }, 1); } });
+    Object.defineProperty(el, "src", { get: () => el.getAttribute("src"), set: (v: string) => { srcs.push(v); el.setAttribute("src", v); setTimeout(() => { const good = /good|^data:/.test(v); const fn = good ? el.onload : el.onerror; fn && (fn as () => void)(); }, 1); } });
     return el;
   };
   (w as any).Element.prototype.scrollIntoView = function () {};
