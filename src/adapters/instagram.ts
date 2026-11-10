@@ -1,21 +1,52 @@
 import { NFB } from "../shared";
-import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } from "../types";
+import type { ResolveResult, ScanContext, Settings, User } from "../types";
 
   const APP_ID = "936619743392459";
-  const getCookie = (n) => (document.cookie.split("; ").find((c) => c.startsWith(n + "=")) || "").split("=")[1];
-  const hdrs = () => ({
+  const getCookie = (n: string) => (document.cookie.split("; ").find((c) => c.startsWith(n + "=")) || "").split("=")[1];
+  const hdrs = (): Record<string, string> => ({
     "x-ig-app-id": APP_ID,
     "x-csrftoken": getCookie("csrftoken") || "",
     "x-requested-with": "XMLHttpRequest",
   });
 
   // Values the site's own requests used (collected by hook.js).
+  // The hook publishes them with events; the old `data-nfb` attribute is still read once for builds
+  // that predate the event bridge, then removed so session tokens never linger in the DOM.
+  let capturedState: Record<string, string> = {};
+  let captureReady = false;
+  const mergeCaptured = (detail: unknown) => {
+    let data: unknown = null;
+    if (typeof detail === "string") { try { data = JSON.parse(detail); } catch { return; } }
+    else if (detail && typeof detail === "object") data = detail;
+    if (!data || typeof data !== "object") return;
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) if (typeof v === "string" && v) capturedState[k] = v;
+  };
+  const initCapture = () => {
+    if (captureReady) return;
+    captureReady = true;
+    const el = document.documentElement;
+    const legacy = el.getAttribute("data-nfb");
+    if (legacy) {
+      mergeCaptured(legacy);
+      el.removeAttribute("data-nfb");
+    }
+    document.addEventListener("nfb:tokens", (e) => mergeCaptured((e as CustomEvent).detail));
+    // postMessage is the fallback for browsers that hide CustomEvent.detail from isolated worlds.
+    window.addEventListener("message", (e) => {
+      if (e.source !== window) return;
+      const d = e.data;
+      if (d && typeof d === "object" && typeof d.__nfbTokens === "string") mergeCaptured(d.__nfbTokens);
+    });
+    // The hook may have published before this script ran: ask for a fresh copy.
+    try { document.dispatchEvent(new CustomEvent("nfb:tokens-request")); } catch {}
+  };
   const captured = () => {
-    try { return JSON.parse(document.documentElement.getAttribute("data-nfb") || "{}"); } catch { return {}; }
+    initCapture();
+    return capturedState;
   };
 
-  let rollout;
-  const getRollout = () => {
+  let rollout: string | undefined;
+  const getRollout = (): string => {
     if (rollout !== undefined) return rollout;
     rollout = "";
     for (const sc of document.scripts) {
@@ -25,24 +56,25 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     return rollout;
   };
 
-  let dtsgCache = "";
+  let dtsgCache = "", dtsgAt = 0;
+  const DTSG_TTL = 30 * 60 * 1000; // the token rotates during a long session: refresh it instead of caching forever
   const getDtsg = () => {
     const c = captured();
     if (c.fb_dtsg) return c.fb_dtsg;
-    if (dtsgCache) return dtsgCache;
+    if (dtsgCache && Date.now() - dtsgAt < DTSG_TTL) return dtsgCache;
     const inp = document.querySelector('input[name="fb_dtsg"]');
-    if (inp && inp.value) return (dtsgCache = inp.value);
+    if (inp && inp.value) { dtsgCache = inp.value; dtsgAt = Date.now(); return dtsgCache; }
     for (const sc of document.scripts) {
       const t = sc.textContent || "";
       if (!t.includes("DTSG")) continue;
       const m = /"DTSGInitialData",\[\],\{"token":"([^"]+)"/.exec(t) ||
                 /"DTSGInitData",\[\],\{"token":"([^"]+)"/.exec(t) ||
                 /"dtsg":\{"token":"([^"]+)"/.exec(t);
-      if (m) return (dtsgCache = m[1]);
+      if (m) { dtsgCache = m[1]; dtsgAt = Date.now(); return dtsgCache; }
     }
     return "";
   };
-  const jazoestFor = (dtsg) => {
+  const jazoestFor = (dtsg: string) => {
     const c = captured();
     if (c.jazoest) return c.jazoest;
     let sum = 0;
@@ -50,11 +82,11 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     return "2" + sum;
   };
 
-  const unfollowHeaders = () => {
+  const unfollowHeaders = (): Record<string, string> => {
     const c = captured();
     let claim = c["x-ig-www-claim"];
-    if (!claim) { try { claim = sessionStorage.getItem("www-claim-v2"); } catch {} }
-    const h = {
+    if (!claim) { try { claim = sessionStorage.getItem("www-claim-v2") || ""; } catch {} }
+    const h: Record<string, string> = {
       ...hdrs(),
       "content-type": "application/x-www-form-urlencoded",
       "x-ig-www-claim": claim || "0",
@@ -80,19 +112,26 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
   }
 
   // max = 0 means "everything"; otherwise stop as soon as `max` accounts are fetched.
-  async function fetchList(kind, uid, onProgress, max = 0) {
+  // A hard page cap and a repeated-cursor guard keep a broken or hostile API from looping forever.
+  const MAX_LIST_PAGES = 1000;
+  async function fetchList(kind: string, uid: string, onProgress: (n: number) => void, max = 0) {
     const out = [];
     let maxId = "";
+    let pages = 0;
     while (true) {
-      const count = max ? Math.min(100, max - out.length) : 100;
+      if (++pages > MAX_LIST_PAGES) throw new Error(`Fetching ${kind} stopped after ${MAX_LIST_PAGES} pages. Wait a while before retrying.`);
+      const count = max ? Math.min(100, Math.max(1, max - out.length)) : 100;
       const url = `/api/v1/friendships/${uid}/${kind}/?count=${count}` + (maxId ? `&max_id=${maxId}` : "");
       const r = await fetchT(url, { headers: hdrs(), credentials: "include" });
       if (!r.ok) throw new Error(`Fetching ${kind} failed (HTTP ${r.status}). Wait a while before retrying.`);
       const j = await r.json();
-      out.push(...(j.users || []));
+      if (!j || !Array.isArray(j.users)) throw new Error(`Fetching ${kind} returned an unexpected response. Wait a while before retrying.`);
+      out.push(...j.users);
       onProgress(out.length);
-      if (!j.next_max_id || (max && out.length >= max)) break;
-      maxId = j.next_max_id;
+      if (max && out.length >= max) break;
+      const next = typeof j.next_max_id === "string" ? j.next_max_id : "";
+      if (!next || next === maxId) break;
+      maxId = next;
       await NFB.sleep(NFB.rand(1200, 2800));
     }
     return max ? out.slice(0, max) : out;
@@ -102,7 +141,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
 
   // Looks an account up by its id: its current username, or { gone: true } if it was removed, banned or deactivated.
   // Anything unclear returns an empty object (unknown). Limits and blocks throw an error with .fatal set, like the other calls.
-  async function resolveAccount(pk) {
+  async function resolveAccount(pk: string): Promise<ResolveResult> {
     let r;
     try { r = await fetchT(`/api/v1/users/${pk}/info/`, { headers: hdrs(), credentials: "include" }); } catch { return {}; }
     if ([401, 403, 429].includes(r.status)) { const e = new Error("HTTP " + r.status); e.fatal = true; e.block = r.status === 429; throw e; }
@@ -117,7 +156,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
   const BLOCK_RE = /feedback_required|checkpoint|spam|wait a few minutes|try again later|temporarily|action blocked|we restrict/i;
 
   // true if the account is (or may still be) followed; used to double-check an unfollow before treating it as failed
-  async function stillFollowing(pk) {
+  async function stillFollowing(pk: string) {
     try {
       const r = await fetchT(`/api/v1/friendships/show/${pk}/`, { headers: hdrs(), credentials: "include" });
       if (!r.ok) return true;
@@ -125,7 +164,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     } catch { return true; }
   }
 
-  async function friendshipApi(kind, u) {
+  async function friendshipApi(kind: string, u: User) {
     const dtsg = getDtsg();
     if (!dtsg) {
       const err = new Error("Couldn't find Instagram's page token (fb_dtsg)");
@@ -163,7 +202,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
       // another client error with no explanation: ask Instagram whether the account still exists
       if (kind === "destroy" && !err.fatal && !err.skip && r.status >= 400 && r.status < 500) {
         try { err.skip = !!(await resolveAccount(u.pk)).gone; }
-        catch (e2) { if (e2.fatal) { err.fatal = true; err.block = !!e2.block; } }
+        catch (e2) { const x = e2 as { fatal?: boolean; block?: boolean }; if (x.fatal) { err.fatal = true; err.block = !!x.block; } }
       }
       throw err;
     }
@@ -177,13 +216,13 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     }
     return fs || {};
   }
-  const unfollowViaApi = (u) => friendshipApi("destroy", u);
+  const unfollowViaApi = (u: User) => friendshipApi("destroy", u);
 
   // ---- Browser-click method: runs on the profile page of the account ----
   const stopCheck = () => {
     if (NFB.shouldStop && NFB.shouldStop()) { const e = new Error("Stopped"); e.stopped = true; throw e; }
   };
-  const waitFor = async (fn, ms) => {
+  const waitFor = async <T,>(fn: () => T | null, ms: number): Promise<T | null> => {
     const t0 = Date.now();
     while (Date.now() - t0 < ms) {
       stopCheck();
@@ -194,7 +233,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     return null;
   };
   // innerText ignores the hidden <title> inside icons (textContent would read "FollowingDown chevron icon").
-  const labelOf = (el) => (((el.innerText || el.textContent || "").trim().split("\n")[0]) || "").trim();
+  const labelOf = (el: Element) => (((el as HTMLElement).innerText || el.textContent || "").trim().split("\n")[0] || "").trim();
   // Button words in common languages (best effort). Anything else can be typed into the settings.
   const LABELS = {
     following: ["Following", "Siguiendo", "Abonné(e)", "Abonné", "Gefolgt", "Seguindo", "Segui già", "Seguito", "Volgend", "Takiptesin", "Mengikuti", "Вы подписаны", "フォロー中", "팔로잉", "फ़ॉलो कर रहे हैं"],
@@ -203,28 +242,28 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     requested: ["Requested", "Solicitado", "Demandé", "Angefragt", "Richiesto", "Aangevraagd", "İstek Gönderildi", "Diminta", "Запрос отправлен", "リクエスト済み", "요청됨", "अनुरोध किया गया"],
     unfollow: ["Unfollow", "Dejar de seguir", "Se désabonner", "Nicht mehr folgen", "Deixar de seguir", "Smetti di seguire", "Ontvolgen", "Takibi Bırak", "Berhenti Mengikuti", "Отменить подписку", "フォローをやめる", "팔로우 취소", "अनफ़ॉलो करें"],
   };
-  const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const custom = (t) => String(t || "").split(",").map((x) => x.trim()).filter(Boolean);
-  const matcher = (list, extra) => new RegExp("^(?:" + [...list, ...extra].map(escRe).join("|") + ")$", "i");
-  const labelSet = (s) => {
+  const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const custom = (t: unknown): string[] => String(t || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const matcher = (list: string[], extra: string[]) => new RegExp("^(?:" + [...list, ...extra].map(escRe).join("|") + ")$", "i");
+  const labelSet = (s?: Settings | null) => {
     const fol = matcher(LABELS.following, custom(s && s.labelFollowing));
     const notFol = matcher([...LABELS.follow, ...LABELS.followBack], []);
     const req = matcher(LABELS.requested, []);
     return { fol, notFol, req, rel: new RegExp(`(?:${fol.source})|(?:${notFol.source})|(?:${req.source})`, "i"), unf: matcher(LABELS.unfollow, custom(s && s.labelUnfollow)) };
   };
-  const btnWithText = (root, re) =>
-    [...root.querySelectorAll('button, [role="button"]')].find((b) => re.test(labelOf(b)));
-  const realClick = (el) => {
+  const btnWithText = (root: ParentNode, re: RegExp): Element | null =>
+    [...root.querySelectorAll('button, [role="button"]')].find((b) => re.test(labelOf(b))) || null;
+  const realClick = (el: Element) => {
     el.scrollIntoView({ block: "center" });
     for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
       el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
     }
   };
-  const profileHeader = (u) => {
+  const profileHeader = (u: User): Element | null => {
     const hs = [...document.querySelectorAll("header")];
-    return hs.find((h) => (h.innerText || "").toLowerCase().includes(u.username.toLowerCase())) || hs[0] || null;
+    return hs.find((h) => ((h as HTMLElement).innerText || "").toLowerCase().includes(u.username.toLowerCase())) || hs[0] || null;
   };
-  const findUnfollow = (re) => {
+  const findUnfollow = (re: RegExp): Element | null => {
     for (const d of document.querySelectorAll('[role="dialog"], [role="menu"]')) {
       const b = btnWithText(d, re);
       if (b) return b;
@@ -238,7 +277,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
   const PAGE_GONE = /isn['’]t available|is not available|may be broken|no est[aá] disponible|n['’]est pas disponible|nicht verf[uü]gbar|n[aã]o est[aá] dispon[ií]vel/i;
   const pageGone = () => !document.querySelector("header") && PAGE_GONE.test(((document.body && document.body.innerText) || "").slice(0, 4000));
 
-  async function unfollowViaUI(u, s) {
+  async function unfollowViaUI(u: User, s: Settings) {
     const L = labelSet(s);
     const head = await waitFor(() => profileHeader(u) || (pageGone() ? "gone" : null), 15000);
     if (head === "gone") {
@@ -284,7 +323,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     }
   }
 
-  async function getCounts(uid) {
+  async function getCounts(uid: string) {
     try {
       const r = await fetchT(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
       if (!r.ok) return null;
@@ -293,14 +332,14 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     } catch { return null; }
   }
 
-  async function followsYou(pk) {
+  async function followsYou(pk: string) {
     const r = await fetchT(`/api/v1/friendships/show/${pk}/`, { headers: hdrs(), credentials: "include" });
     if (!r.ok) throw new Error(`Checking a profile failed (HTTP ${r.status}). Wait a while before retrying.`);
     const j = await r.json();
     return !!j.followed_by;
   }
 
-  const toUser = (u) => ({
+  const toUser = (u: Record<string, any>): User => ({
     pk: String(u.pk || u.id),
     username: u.username,
     full_name: u.full_name || "",
@@ -317,20 +356,20 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     canSchedule: true,                        // the daily schedule can run here
     followerDiff: true,                       // follower lists are complete, so changes between scans can be logged
     accountId: () => getCookie("ds_user_id") || "default",
-    match: () => location.hostname.endsWith("instagram.com"),
-    scanConfirm: (o) =>
+    match: () => /(^|\.)instagram\.com$/i.test(location.hostname),
+    scanConfirm: (o: { limit?: unknown; start?: number }) =>
       o.limit
-        ? `Check ${o.limit} accounts you follow, starting at #${o.start + 1}? This makes requests to Instagram.`
+        ? `Check ${o.limit} accounts you follow, starting at #${(o.start || 0) + 1}? This makes requests to Instagram.`
         : "Fetch ALL followers and following? This makes many requests to Instagram.",
     canScan: () => true,
     cannotScanMessage: () => "",
     scanLabel: () => "Scan",
-    profileUrl: (u) => `https://www.instagram.com/${u.username}/`,
+    profileUrl: (u: User) => `https://www.instagram.com/${u.username}/`,
 
-    async scan({ setStatus, opts }) {
+    async scan({ setStatus, opts }: ScanContext) {
       const uid = getCookie("ds_user_id");
       if (!uid) throw new Error("Couldn't find your user id. Are you logged in to Instagram?");
-      const limit = opts.limit || 0, start = opts.start || 0;
+      const limit = Number(opts.limit) || 0, start = Number(opts.start) || 0;
       const counts = await getCounts(uid);
 
       const need = limit ? start + limit : 0;
@@ -385,10 +424,10 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
     },
 
     // "api" sends the same request the site does; "ui" opens the profile and clicks Following → Unfollow.
-    navigateTo: (u, s) => (s && s.igMethod === "ui" ? `https://www.instagram.com/${u.username}/` : null),
-    unfollow: (u, s) => (s && s.igMethod === "ui" ? unfollowViaUI(u, s) : unfollowViaApi(u)),
+    navigateTo: (u: User, s?: Settings) => (s && s.igMethod === "ui" ? `https://www.instagram.com/${u.username}/` : null),
+    unfollow: (u: User, s?: Settings) => (s && s.igMethod === "ui" ? unfollowViaUI(u, s) : unfollowViaApi(u)),
     // A fresh picture link for one account (the saved links expire after a few days).
-    async refreshPic(u) {
+    async refreshPic(u: User) {
       const r = await fetchT(`/api/v1/users/${u.pk}/info/`, { headers: hdrs(), credentials: "include" });
       if (r.status === 429 || r.status === 403 || r.status === 401) { const e = new Error("HTTP " + r.status); e.fatal = true; throw e; }
       if (!r.ok) return null;
@@ -396,13 +435,13 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
       return (j.user && j.user.profile_pic_url) || null;
     },
     // Used before the browser-click method opens a profile: the current username, or { gone: true }.
-    resolve: (u) => resolveAccount(u.pk),
-    follow: (u) => friendshipApi("create", u),
+    resolve: (u: User) => resolveAccount(u.pk),
+    follow: (u: User) => friendshipApi("create", u),
 
     // Self-check: reports what the extension can currently see on this page (shown in the panel's log area).
-    async diagnose(s) {
-      const out = [];
-      const add = (ok, name, detail) => out.push({ ok, name, detail: detail || "" });
+    async diagnose(s?: Settings) {
+      const out: Array<{ ok: boolean | null; name: string; detail: string }> = [];
+      const add = (ok: boolean | null, name: string, detail?: string) => out.push({ ok, name, detail: detail || "" });
       const uid = getCookie("ds_user_id");
       add(!!uid, "Logged in (account cookie)", uid ? "yes" : "not found: are you logged in?");
       add(!!getCookie("csrftoken"), "CSRF cookie", getCookie("csrftoken") ? "present" : "missing");
@@ -415,7 +454,7 @@ import type { Adapter, PlatformId, ScanContext, ScanResult, Settings, User } fro
         try {
           const r = await fetchT(`/api/v1/users/${uid}/info/`, { headers: hdrs(), credentials: "include" });
           add(r.ok, "Instagram API reachable", "HTTP " + r.status);
-        } catch (e) { add(false, "Instagram API reachable", e.message); }
+        } catch (e) { add(false, "Instagram API reachable", (e as Error).message); }
       }
       const segs = location.pathname.split("/").filter(Boolean);
       const onProfile = segs.length === 1 && !["explore", "reels", "direct", "accounts", "p", "stories", "reel"].includes(segs[0]);

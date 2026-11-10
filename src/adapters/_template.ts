@@ -5,8 +5,10 @@
 //  Everything else (tabs, selection, daily limit, cool-down, history, translations…) is shared.
 //  Rename "example" below, change match(), and replace the three TODO functions with real logic.
 // ──────────────────────────────────────────────────────────────────────────────────────────────
+import type { User } from "../types";
+
 (() => {
-  const NFB = globalThis.NFB;
+  const NFB = (globalThis as any).NFB;
 
   // A "user" object used everywhere in the panel:
   //   { pk: "stable id as a string", username, full_name, pic: "image url or ''", verified: bool,
@@ -15,22 +17,22 @@
   NFB.adapters.example = {
     id: "example",                      // must also be listed in NFB.PLATFORMS and NFB.DEFAULTS (shared.js)
     label: "Example",
-    match: () => location.hostname.endsWith("example.test"),
+    match: () => /(^|\.)example\.test$/i.test(location.hostname),
     accountId: () => "default",         // id of the logged-in account (read a cookie, the page…), so data is kept per account
 
     // ---- scanning ------------------------------------------------------------------------------
     supportsStart: false,               // true if you support the "from #" offset
-    scanConfirm: (opts) => "Read the follower lists now?",   // text of the confirmation dialog
-    canScan: (prev) => true,            // false disables the Scan button (e.g. wrong page)
-    cannotScanMessage: (prev) => "",    // shown when canScan() is false
-    scanLabel: (prev) => "Scan",        // label of the Scan button
-    profileUrl: (u) => `https://example.test/${u.username}`,
+    scanConfirm: () => "Read the follower lists now?",   // text of the confirmation dialog
+    canScan: () => true,            // false disables the Scan button (e.g. wrong page)
+    cannotScanMessage: () => "",    // shown when canScan() is false
+    scanLabel: () => "Scan",        // label of the Scan button
+    profileUrl: (u: User) => `https://example.test/${u.username}`,
 
     // TODO 1: return everyone you follow who doesn't follow back.
-    async scan({ setStatus, prev, opts }) {
+    async scan({ setStatus }: { setStatus: (text: string) => void }) {
       setStatus("Reading lists…");
-      const following = [];   // TODO: fetch the accounts you follow  -> user objects
-      const followers = [];   // TODO: fetch your followers           -> user objects
+      const following: User[] = [];   // TODO: fetch the accounts you follow  -> user objects
+      const followers: User[] = [];   // TODO: fetch your followers           -> user objects
       const fset = new Set(followers.map((u) => u.pk));
       const users = following.filter((u) => !fset.has(u.pk));
       return {
@@ -45,7 +47,7 @@
     // TODO 2: unfollow one account. THROW an Error on failure. Optional flags on the error:
     //   err.fatal = true  -> stop the whole batch      err.block = true -> also start the cool-down
     //   err.useUI = true  -> (instagram only) retry with the browser-click method
-    async unfollow(u, settings) {
+    async unfollow(_u: User, _settings: unknown) {
       throw new Error("unfollow() is not implemented for this site yet");
     },
 

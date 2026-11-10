@@ -8,8 +8,8 @@ export default defineConfig({
     outDir: "dist/chromium",
     emptyOutDir: true,
     target: "chrome111",
-    sourcemap: true,
-    minify: false,
+    sourcemap: false,
+    minify: "oxc",
   },
   server: {
     port: 5173,
