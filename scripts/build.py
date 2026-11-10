@@ -62,6 +62,20 @@ def main() -> None:
             entry["js"] = ["content.js"]
     manifest.pop("web_accessible_resources", None)
     (firefox / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    # Chromium-only chunks and source maps must not ship in the Firefox package.
+    for pattern in (
+        "service-worker-loader.js",
+        "assets/index.ts-loader-*",
+        "assets/src-content-index.ts-*",
+        "assets/background.ts-*",
+        "assets/crx-manifest.js-*",
+        "assets/stub-*",
+    ):
+        for p in firefox.glob(pattern):
+            p.unlink()
+    for p in firefox.rglob("*.map"):
+        p.unlink()
     zip_dir(firefox, DIST / "unfollow-guard-firefox.zip")
 
     print("Built:")

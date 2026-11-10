@@ -29,6 +29,12 @@ import { NFB } from "./shared";
     ["opt_first", "Check first {n}", "Revisar {n} primeros", "Vérifier {n} premiers", "Erste {n} prüfen", "Verificar {n} primeiros"],
     ["opt_all", "Check all", "Revisar todos", "Vérifier tous", "Alle prüfen", "Verificar todos"],
     ["lbl_from", "from #", "desde #", "à partir de #", "ab #", "a partir de #"],
+    ["aria_scan_limit", "Accounts to check in this scan", "Cuentas a revisar en este escaneo", "Comptes à vérifier dans cette analyse", "Konten für diesen Scan", "Contas a verificar neste escaneamento"],
+    ["aria_scan_from", "Start from this position in the list", "Empezar en esta posición de la lista", "Commencer à cette position dans la liste", "An dieser Position der Liste beginnen", "Começar nesta posição da lista"],
+    ["aria_filter", "Filter the list", "Filtrar la lista", "Filtrer la liste", "Liste filtern", "Filtrar a lista"],
+    ["aria_sort", "Sort the list", "Ordenar la lista", "Trier la liste", "Liste sortieren", "Ordenar a lista"],
+    ["aria_select_n", "How many accounts to select", "Cuántas cuentas seleccionar", "Combien de comptes sélectionner", "Wie viele Konten ausgewählt werden", "Quantas contas selecionar"],
+    ["aria_select_user", "Select @{u}", "Seleccionar @{u}", "Sélectionner @{u}", "@{u} auswählen", "Selecionar @{u}"],
     ["btn_scan", "Scan", "Escanear", "Analyser", "Scannen", "Escanear"],
     ["btn_scanning", "Scanning…", "Escaneando…", "Analyse…", "Scanne…", "Escaneando…"],
     ["btn_locked", "🔒 Scan locked", "🔒 Escaneo bloqueado", "🔒 Analyse verrouillée", "🔒 Scan gesperrt", "🔒 Escaneamento bloqueado"],
@@ -123,6 +129,8 @@ import { NFB } from "./shared";
     ["rc_resumes", "Resumes at {from} (in {t})", "Se reanuda a las {from} (en {t})", "Reprise à {from} (dans {t})", "Weiter um {from} (in {t})", "Retoma às {from} (em {t})"],
     ["rc_finished", "Finished — {n} unfollowed", "Terminado: {n} dejados de seguir", "Terminé : {n} désabonnements", "Fertig: {n} entfolgt", "Concluído: {n} deixados de seguir"],
     ["rc_stopped", "Stopped", "Detenido", "Arrêté", "Gestoppt", "Parado"],
+    ["rc_taken_over", "Stopped — another tab took over this batch", "Detenido: otra pestaña asumió este lote", "Arrêté : un autre onglet a repris ce lot", "Gestoppt – ein anderer Tab hat diesen Durchlauf übernommen", "Parado — outra aba assumiu este lote"],
+    ["run_busy", "A batch is already running in another tab.", "Ya hay un lote en marcha en otra pestaña.", "Un lot est déjà en cours dans un autre onglet.", "In einem anderen Tab läuft bereits ein Durchlauf.", "Já há um lote em execução em outra aba."],
     ["rc_cap", "Daily limit of {n} reached", "Límite diario de {n} alcanzado", "Limite quotidienne de {n} atteinte", "Tageslimit von {n} erreicht", "Limite diário de {n} atingido"],
     ["btn_stop", "Stop", "Detener", "Arrêter", "Stopp", "Parar"],
     ["btn_stopping", "Stopping…", "Deteniendo…", "Arrêt…", "Stoppe…", "Parando…"],
@@ -143,6 +151,9 @@ import { NFB } from "./shared";
     ["ts_moved", "Moved {n} account(s) back to \"To unfollow\".", "{n} cuenta(s) devuelta(s) a «Por dejar de seguir».", "{n} compte(s) remis dans « À désabonner ».", "{n} Konto/Konten zurück zu „Zu entfolgen“.", "{n} conta(s) devolvida(s) para «Deixar de seguir»."],
     ["ts_nothing", "Nothing to export in this tab.", "Nada que exportar en esta pestaña.", "Rien à exporter dans cet onglet.", "In diesem Tab gibt es nichts zu exportieren.", "Nada para exportar nesta aba."],
     ["ts_exported", "Exported {n} rows.", "{n} filas exportadas.", "{n} lignes exportées.", "{n} Zeilen exportiert.", "{n} linhas exportadas."],
+    ["ts_imported", "Imported {n} kept account(s).", "Importadas {n} cuenta(s) conservada(s).", "{n} compte(s) conservé(s) importé(s).", "{n} Konto/Konten behalten importiert.", "{n} conta(s) mantida(s) importada(s)."],
+    ["ts_imported_missing", "Imported {n}; {m} not found in your saved lists (scan first).", "Importadas {n}; {m} no encontradas en tus listas guardadas (escanea primero).", "{n} importé(s) ; {m} introuvable(s) dans vos listes enregistrées (lancez d'abord une analyse).", "{n} importiert; {m} nicht in den gespeicherten Listen (zuerst scannen).", "Importadas {n}; {m} não encontradas nas suas listas guardadas (escaneie primeiro)."],
+    ["ts_import_none", "Nothing to import.", "Nada que importar.", "Rien à importer.", "Nichts zu importieren.", "Nada para importar."],
     ["ts_copied", "Copied to the clipboard.", "Copiado al portapapeles.", "Copié dans le presse-papiers.", "In die Zwischenablage kopiert.", "Copiado para a área de transferência."],
     ["ts_refollowed", "Following @{u} again. It was added to Kept so it won't be unfollowed.", "Vuelves a seguir a @{u}. Se añadió a Conservados para no volver a dejarlo de seguir.", "Vous suivez à nouveau @{u}. Ajouté à Conservés pour ne pas être désabonné.", "Du folgst @{u} wieder. Zu „Behalten“ hinzugefügt, damit nicht erneut entfolgt wird.", "Você voltou a seguir @{u}. Foi adicionado a Mantidos."],
     ["ts_refollow_fail", "Couldn't re-follow: {e}", "No se pudo volver a seguir: {e}", "Réabonnement impossible : {e}", "Wieder-Folgen fehlgeschlagen: {e}", "Não foi possível seguir de novo: {e}"],
@@ -191,15 +202,15 @@ import { NFB } from "./shared";
   ROWS.forEach((r) => CODES.forEach((c, i) => { if (r[i + 1] != null) D[c][r[0]] = r[i + 1]; }));
   NFB.i18n = D;
   NFB.lang = "en";
-  NFB.setLang = (pref) => {
+  NFB.setLang = (pref: string | null | undefined) => {
     const auto = String((typeof navigator !== "undefined" && navigator.language) || "en").slice(0, 2).toLowerCase();
     const want = pref && pref !== "auto" ? pref : auto;
     NFB.lang = D[want] ? want : "en";
     return NFB.lang;
   };
-  NFB.t = (key, vars) => {
+  NFB.t = (key: string, vars?: Record<string, unknown>) => {
     let s = D[NFB.lang] && D[NFB.lang][key];
     if (s == null) s = D.en[key];
     if (s == null) return key;
-    return vars ? s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] == null ? "" : vars[k])) : s;
+    return vars ? s.replace(/\{(\w+)\}/g, (_m: string, k: string) => (vars[k] == null ? "" : String(vars[k]))) : s;
   };

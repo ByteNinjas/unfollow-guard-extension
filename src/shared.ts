@@ -3,7 +3,7 @@
 // legacy "Non-Followers" identifiers kept DELIBERATELY. Renaming them orphans
 // every existing user's saved scans, keep lists and history. Only user-visible
 // strings use the "Unfollow Guard" name.
-import type { Adapter, NFB as NFBType, Platform, PlatformId, Settings } from "./types";
+import type { NFB as NFBType, Platform, Settings } from "./types";
 
 export const NFB: NFBType = {};
 (globalThis as any).NFB = NFB;
@@ -46,8 +46,8 @@ export const NFB: NFBType = {};
     protectPattern: "",
     protectTagged: true,
   };
-  NFB.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  NFB.rand = (a, b) => a + Math.random() * (b - a);
+  NFB.sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  NFB.rand = (a: number, b: number) => a + Math.random() * (b - a);
   // The daily counter starts over at `dayResetTime` (setting, default midnight). NFB.resetMin is that time in minutes.
   NFB.resetMin = 0;
   NFB.today = () => new Date(Date.now() - NFB.resetMin * 60000).toLocaleDateString("en-CA");
@@ -56,29 +56,29 @@ export const NFB: NFBType = {};
     const t = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, NFB.resetMin, 0, 0).getTime();
     return (t > n.getTime() ? t : t + 86400000) - n.getTime();
   };
-  NFB.fmtClock = (sec) => {
+  NFB.fmtClock = (sec: number) => {
     sec = Math.max(0, Math.ceil(sec));
     return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
   };
-  NFB.fmtHM = (ms) => {
+  NFB.fmtHM = (ms: number) => {
     const m = Math.max(1, Math.ceil(ms / 60000));
     return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
   };
-  NFB.fmtWhen = (t) => {
+  NFB.fmtWhen = (t: number) => {
     const d = new Date(t), now = new Date();
     const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     return d.toDateString() === now.toDateString() ? `Today ${time}` : `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
   };
 
   // Active hours (local time). A window like 22:00–06:00 that crosses midnight is supported.
-  const toMin = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
-  NFB.inActiveHours = (s, d = new Date()) => {
+  const toMin = (t: string | null | undefined) => { const [h, m] = String(t || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  NFB.inActiveHours = (s: Settings, d = new Date()) => {
     if (!s.activeEnabled) return true;
     const n = d.getHours() * 60 + d.getMinutes(), a = toMin(s.activeFrom), b = toMin(s.activeTo);
     if (a === b) return true;
     return a < b ? n >= a && n < b : n >= a || n < b;
   };
-  NFB.msToActiveStart = (s, d = new Date()) => {
+  NFB.msToActiveStart = (s: Settings, d = new Date()) => {
     const n = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
     let diff = toMin(s.activeFrom) - n;
     if (diff <= 0) diff += 1440;
@@ -91,16 +91,16 @@ export const NFB: NFBType = {};
     return s;
   };
 
-  NFB.getDaily = async (p) => {
+  NFB.getDaily = async (p: string) => {
     const o = await chrome.storage.local.get<Record<string, any>>("nfb_daily_" + p);
     const d = o["nfb_daily_" + p];
     return d && d.date === NFB.today() ? d : { date: NFB.today(), count: 0 };
   };
   // Sets today's counter to an exact number (used by "reset counter" in the panel).
-  NFB.setUsed = async (p, n) => {
+  NFB.setUsed = async (p: string, n: number) => {
     await chrome.storage.local.set({ ["nfb_daily_" + p]: { date: NFB.today(), count: Math.max(0, n | 0) } });
   };
-  NFB.bumpDaily = async (p) => {
+  NFB.bumpDaily = async (p: string) => {
     const d = await NFB.getDaily(p);
     d.count++;
     await chrome.storage.local.set({ ["nfb_daily_" + p]: d });
@@ -111,7 +111,7 @@ export const NFB: NFBType = {};
     return d.count;
   };
   // Daily limit after warm-up: starts low and grows by `warmupStep` for every earlier day you used it.
-  NFB.effectiveCap = async (p, s, base) => {
+  NFB.effectiveCap = async (p: string, s: Settings, base: number) => {
     if (!s.warmupEnabled) return { cap: base, warm: null };
     const dk = "nfb_days_" + p;
     const days = (await chrome.storage.local.get<Record<string, any>>(dk))[dk] || { n: 0, last: "" };
@@ -138,12 +138,12 @@ export const NFB: NFBType = {};
 
   // Data is stored per logged-in account (nfb_<name>_<site>_<accountId>). Data saved by older versions
   // (no account id) is adopted by the first account that opens the site.
-  NFB.migrateAccount = async (p, acct) => {
+  NFB.migrateAccount = async (p: string, acct: string) => {
     const names = ["scan", "lists", "keep", "sel", "gone", "hist"];
     const oldKeys = names.map((n) => `nfb_${n}_${p}`).concat([`nfb_daily_${p}`]);
     const newKeys = names.map((n) => `nfb_${n}_${p}_${acct}`);
     const o = await chrome.storage.local.get<Record<string, any>>(oldKeys.concat(newKeys));
-    const set = {}, rm = [];
+    const set: Record<string, unknown> = {}, rm: string[] = [];
     names.forEach((n) => {
       const ok = `nfb_${n}_${p}`, nk = `nfb_${n}_${p}_${acct}`;
       if (o[ok] !== undefined) { if (o[nk] === undefined) set[nk] = o[ok]; rm.push(ok); }
@@ -158,7 +158,7 @@ export const NFB: NFBType = {};
     if (sc) await chrome.storage.local.set({ [`nfb_meta_${p}_${acct}`]: { at: sc.at, text: NFB.describeScan(p, sc), username: sc.username || "" } });
   };
 
-  NFB.describeScan = (p, sc) => {
+  NFB.describeScan = (p: string, sc: any) => {
     const n = (sc.users || []).length;
     if (p === "facebook") {
       const f1 = sc.followersList ? sc.followersList.length : "not collected";
@@ -236,9 +236,9 @@ export const NFB: NFBType = {};
 
   // ---------- dialog (replaces the browser's alert/confirm) ----------
   let dlgId = 0;
-  NFB.dialog = (container, o) =>
+  NFB.dialog = (container: ParentNode, o: any) =>
     new Promise((resolve) => {
-      const root = container.getRootNode ? container.getRootNode() : document;
+      const root = (container.getRootNode ? container.getRootNode() : document) as Document | ShadowRoot;
       const prev = root.activeElement || document.activeElement;
       const ov = document.createElement("div");
       ov.className = "overlay";
@@ -256,7 +256,7 @@ export const NFB: NFBType = {};
       else b.textContent = o.body || "";
       const act = document.createElement("div");
       act.className = "mactions";
-      const done = (v) => {
+      const done = (v: boolean) => {
         ov.remove();
         try { if (prev && prev.focus) prev.focus(); } catch {}
         resolve(v);
@@ -294,9 +294,9 @@ export const NFB: NFBType = {};
     });
 
   // ---------- settings form ----------
-  const row = (title, hint, control) =>
+  const row = (title: string, hint: string, control: string) =>
     `<div class="srow"><div class="stext"><b>${title}</b>${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control}</div>`;
-  const sw = (id) => `<input type="checkbox" class="sw" id="${id}">`;
+  const sw = (id: string) => `<input type="checkbox" class="sw" id="${id}">`;
 
   const general = `
     <div class="sblock">
@@ -310,7 +310,7 @@ export const NFB: NFBType = {};
       ${row("Theme", "System follows your device's light/dark setting.",
         `<select class="field ssel" id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>`)}
       ${row("Language", "Language of the panel. Settings and technical messages stay in English.",
-        `<select class="field ssel" id="lang">${NFB.LANGS ? NFB.LANGS.map((l) => `<option value="${l[0]}">${l[1]}</option>`).join("") : '<option value="auto">Automatic</option>'}</select>`)}
+        `<select class="field ssel" id="lang">${NFB.LANGS ? NFB.LANGS.map((l: string[]) => `<option value="${l[0]}">${l[1]}</option>`).join("") : '<option value="auto">Automatic</option>'}</select>`)}
       ${row("Button position", "Used when dragging is off, or after a reset.",
         `<select class="field ssel" id="position"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option><option value="top-right">Top right</option><option value="top-left">Top left</option></select>`)}
       ${row("Allow dragging", "Drag the button anywhere. Its spot is remembered per site.", sw("draggable"))}
@@ -322,7 +322,7 @@ export const NFB: NFBType = {};
       ${row("Method", "Direct API sends the same request Instagram's own page sends and switches to Browser clicks if it is rejected. Browser clicks opens each profile and clicks Following → Unfollow (Instagram must be set to English).",
         `<select class="field ssel" id="igMethod"><option value="api">Direct API</option><option value="ui">Browser clicks</option></select>`)}
     </div>`;
-  const platform = (p) => `
+  const platform = (p: Platform) => `
     <div class="sblock">
       <div class="stitle">${p.label}${p.beta ? ' <span class="badge" title="Not fully tested yet">BETA</span>' : ""}</div>
       ${p.beta ? `<div class="hint" style="margin:0 0 6px">Facebook support is a beta feature and has not been tested much. Expect rough edges.</div>` : ""}
@@ -379,10 +379,10 @@ export const NFB: NFBType = {};
   NFB.settingsHTML = NFB.buildSettingsHTML();
 
   // root: document (popup) or a ShadowRoot (in-page panel). dialogHost: where confirmation dialogs are shown.
-  NFB.bindSettings = async (root, dialogHost) => {
-    const $ = (id) => root.getElementById(id);
-    let timer;
-    const flash = (m) => {
+  NFB.bindSettings = async (root: Document | ShadowRoot, dialogHost: any) => {
+    const $ = (id: string): any => root.getElementById(id);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flash = (m: string) => {
       $("ssaved").textContent = m;
       clearTimeout(timer);
       timer = setTimeout(() => ($("ssaved").textContent = ""), 1800);
@@ -395,11 +395,11 @@ export const NFB: NFBType = {};
       for (const p of NFB.PLATFORMS) {
         $("allowScan_" + p.id).checked = !!s["allowScan_" + p.id];
         const accts = idx[p.id] || [];
-        const metas = accts.length ? await chrome.storage.local.get<Record<string, any>>(accts.map((a) => `nfb_meta_${p.id}_${a}`)) : {};
+        const metas = accts.length ? await chrome.storage.local.get<Record<string, any>>(accts.map((a: string) => `nfb_meta_${p.id}_${a}`)) : {};
         const lines = accts
-          .map((a) => ({ a, m: metas[`nfb_meta_${p.id}_${a}`] }))
-          .filter((x) => x.m)
-          .map((x) => `${x.m.username ? "@" + x.m.username : "Account " + x.a} · ${x.m.text}`);
+          .map((a: string) => ({ a, m: metas[`nfb_meta_${p.id}_${a}`] }))
+          .filter((x: { a: string; m: any }) => x.m)
+          .map((x: { a: string; m: any }) => `${x.m.username ? "@" + x.m.username : "Account " + x.a} · ${x.m.text}`);
         $("info_" + p.id).textContent = lines.length ? lines.join("\n") : "No saved scan.";
       }
     };
@@ -472,7 +472,7 @@ export const NFB: NFBType = {};
       await chrome.storage.local.set(upd);
       flash("Saved");
     };
-    $("nfbset").querySelectorAll("input, select").forEach((i) => { if (i.id !== "enabled") i.addEventListener("change", save); });
+    $("nfbset").querySelectorAll("input, select").forEach((i: Element) => { if (i.id !== "enabled") i.addEventListener("change", save); });
     // Turning the extension off from inside the page asks first, and explains how to get it back.
     $("enabled").addEventListener("change", async () => {
       if (!$("enabled").checked && root !== document) {
@@ -486,7 +486,7 @@ export const NFB: NFBType = {};
       }
       await save();
     });
-    const FABPOS = NFB.PLATFORMS.map((p) => "fabPos_" + p.id);
+    const FABPOS = NFB.PLATFORMS.map((p: Platform) => "fabPos_" + p.id);
     $("position").addEventListener("change", () => chrome.storage.local.remove(FABPOS));
     $("resetPos").addEventListener("click", async () => {
       await chrome.storage.local.remove(FABPOS);
@@ -503,14 +503,14 @@ export const NFB: NFBType = {};
         if (!ok) return;
         const idx = (await chrome.storage.local.get<Record<string, any>>("nfb_accounts")).nfb_accounts || {};
         const keys = ["nfb_scan_" + p.id, "nfb_lists_" + p.id, "nfb_gone_" + p.id];
-        (idx[p.id] || []).forEach((a) => ["scan", "lists", "gone", "meta"].forEach((n) => keys.push(`nfb_${n}_${p.id}_${a}`)));
+        (idx[p.id] || []).forEach((a: string) => ["scan", "lists", "gone", "meta"].forEach((n) => keys.push(`nfb_${n}_${p.id}_${a}`)));
         await chrome.storage.local.remove(keys);
         await chrome.storage.local.set({ ["allowScan_" + p.id]: true });
         await loadAll();
         flash("Cleared. Scanning is allowed again.");
       });
     }
-    let infoT;
+    let infoT: ReturnType<typeof setTimeout> | undefined;
     chrome.storage.onChanged.addListener((ch) => {
       if (!Object.keys(ch).some((k) => k.startsWith("nfb_scan_") || k.startsWith("nfb_meta_") || k === "nfb_accounts" || k.startsWith("allowScan_") || k === "theme" || k === "enabled")) return;
       clearTimeout(infoT);
@@ -520,10 +520,11 @@ export const NFB: NFBType = {};
   };
 
   // Keeps the data-theme attribute of `el` in sync with the saved theme (light | dark | system).
-  NFB.watchTheme = async (el) => {
+  NFB.watchTheme = async (el: Element | null) => {
+    if (!el) return;
     const s = await NFB.getSettings();
     el.setAttribute("data-theme", s.theme || "system");
     chrome.storage.onChanged.addListener((ch) => {
-      if (ch.theme) el.setAttribute("data-theme", ch.theme.newValue || "system");
+      if (ch.theme) el.setAttribute("data-theme", String(ch.theme.newValue || "system"));
     });
   };

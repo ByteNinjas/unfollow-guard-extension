@@ -49,7 +49,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const bytes = new Uint8Array(await res.arrayBuffer());
       if (bytes.length > 600000) return sendResponse({ ok: false });
       let bin = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 0x8000)));
       sendResponse({ ok: true, data: `data:${type.split(";")[0]};base64,${btoa(bin)}` });
     } catch { sendResponse({ ok: false }); }
   })();
