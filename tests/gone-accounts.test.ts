@@ -86,7 +86,7 @@ it("gone accounts: removed, banned, renamed and hung requests never freeze a bat
   ok("G7 an unreachable lookup is 'unknown': it goes on to open the profile instead of freezing", store.nfb_run_instagram_5 && store.nfb_run_instagram_5.navFor === 0 && (store.nfb_gone_instagram_5 || []).length === 0);
 
   reset(); info = () => ({ status: 429, body: { message: "rate" } }); a = boot("6", mkUsers(3), { igMethod: "ui" }); await sleep(450); await a.run(1200);
-  ok("G8 a rate limit during the lookup stops the batch and starts the cool-down", /Stopped: HTTP 429/.test(title(a) + a.$("status").textContent) && !!store.nfb_cool_instagram_6, title(a));
+  ok("G8 a rate limit during the lookup still opens the profile instead of aborting", !!store.nfb_run_instagram_6 && store.nfb_run_instagram_6.navFor === 0 && !store.nfb_cool_instagram_6 && /rate-limited the account check/.test(a.$("log").textContent), title(a) + " " + JSON.stringify(store.nfb_run_instagram_6 && { navFor: store.nfb_run_instagram_6.navFor }));
 
   // ---------- the "page isn't available" screen ----------
   {

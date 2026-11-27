@@ -18,7 +18,7 @@ import "../adapters";
   const scanKey = K("scan"), listsKey = K("lists"), keepKey = K("keep"), selKey = K("sel"),
         goneKey = K("gone"), histKey = K("hist"), runKey = K("run"), stopKey = K("stop"),
         snapKey = K("snap"), flwKey = K("flw"), coolKey = K("cool"), metaKey = K("meta"), seenKey = K("seen"),
-        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail");
+        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail"), blockKey = K("block");
   const allowKey = "allowScan_" + A.id;
   const IS_BETA = !!(NFB.PLATFORMS.find((p: any) => p.id === A.id) || {}).beta;
 
@@ -1266,7 +1266,7 @@ import "../adapters";
       refreshRow, removeFromList, dropUnavailable, refreshCap, maxSel,
     },
     adapter: A,
-    keys: { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey },
+    keys: { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, block: blockKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey },
     owner: OWNER,
   });
   // An extension reload kills storage, so stop the batch in memory without trying to persist anything.
@@ -1486,7 +1486,7 @@ import "../adapters";
       applyEnabled(!!s.enabled);
       await loadCfg();
       await NFB.bindSettings(shadow, modalHost);
-      const o = await chrome.storage.local.get<Record<string, any>>([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
+      const o = await chrome.storage.local.get<Record<string, any>>([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, blockKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
       scanCache = o[scanKey] || null;
       lists = o[listsKey] || null;
       keep = o[keepKey] || {};
@@ -1499,6 +1499,9 @@ import "../adapters";
       picFresh = o[picsKey] || {};
       onboarded = !!o.nfb_onboarded;
       coolUntil = o[coolKey] || 0;
+      // Carry a cool-down that was already active before this version into the block streak, so the
+      // next block doubles it instead of starting the 6 h cycle from scratch again.
+      if (coolUntil > Date.now() && !o[blockKey]) await chrome.storage.local.set({ [blockKey]: { count: 1, at: Date.now() } });
       if (scanCache && scanCache.username) $("acct").textContent = " · @" + scanCache.username;
       // first run with this version: use the saved followers list as the baseline for "who unfollowed me"
       if (A.followerDiff && !o[snapKey] && lists && Array.isArray(lists.followers) && lists.followersComplete !== false) {

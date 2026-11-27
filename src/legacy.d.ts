@@ -22,6 +22,7 @@ interface Error {
   block?: boolean;
   skip?: boolean;
   useUI?: boolean;
+  rateLimited?: boolean;
   timeout?: boolean;
   stopped?: boolean;
 }
