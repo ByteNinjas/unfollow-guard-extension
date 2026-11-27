@@ -85,6 +85,58 @@ export const NFB: NFBType = {};
     return diff * 60000;
   };
 
+  // ---------- extension liveness ----------
+  // A content script that is running when the extension is reloaded or updated keeps running,
+  // but Chrome removes its extension APIs. Every chrome.* call then rejects with
+  // "Extension context invalidated." (or "Invalid context type provided." on some versions).
+  // Without this, the panel's timers keep throwing every 1.5 s and the UI silently stops working.
+  NFB.dead = false;
+  NFB.deadHandlers = [];
+  NFB.onDead = (fn: () => void) => {
+    if (typeof fn !== "function") return;
+    if (NFB.dead) { try { fn(); } catch {} return; }
+    NFB.deadHandlers.push(fn);
+  };
+  NFB.alive = () => {
+    if (NFB.dead) return false;
+    try {
+      const rt = (globalThis as any).chrome && (globalThis as any).chrome.runtime;
+      if (!rt) return true; // tests and non-extension pages have no runtime object
+      // Chrome keeps the runtime object after an extension reload but blanks its id; stubs that
+      // never expose an id at all are treated as alive.
+      return !("id" in rt) || !!rt.id;
+    } catch { return false; }
+  };
+  NFB.die = () => {
+    if (NFB.dead) return;
+    NFB.dead = true;
+    const handlers = NFB.deadHandlers.slice();
+    NFB.deadHandlers.length = 0;
+    handlers.forEach((fn: () => void) => { try { fn(); } catch {} });
+  };
+  const invalidContext = (e: unknown) => {
+    const msg = String((e as { message?: string } | null)?.message || e || "");
+    return /extension context invalidated|invalid context type/i.test(msg);
+  };
+  // Wrap the storage API once so a reload is noticed even from a fire-and-forget call.
+  // The extension uses the promise form everywhere (never callbacks), so this is safe.
+  try {
+    const local = (globalThis as any).chrome?.storage?.local;
+    if (local) {
+      for (const m of ["get", "set", "remove", "clear"] as const) {
+        const orig = local[m];
+        if (typeof orig !== "function") continue;
+        local[m] = function (this: unknown, ...args: unknown[]) {
+          let out;
+          try { out = orig.apply(this, args); }
+          catch (e) { if (invalidContext(e)) NFB.die(); throw e; }
+          if (!out || typeof out.then !== "function") return out;
+          return out.catch((e: unknown) => { if (invalidContext(e)) NFB.die(); throw e; });
+        };
+      }
+    }
+  } catch {}
+
   NFB.getSettings = async () => {
     const s = { ...NFB.DEFAULTS, ...(await chrome.storage.local.get<Record<string, any>>(Object.keys(NFB.DEFAULTS))) };
     NFB.resetMin = toMin(s.dayResetTime);

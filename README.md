@@ -359,7 +359,7 @@ The first full scan only saves a baseline. After your next scan, new followers a
 <details>
 <summary><b>Direct API unfollow gets rejected</b></summary>
 
-The batch switches to Browser clicks automatically. If you want to avoid the attempt, choose **Browser clicks** in the settings. If neither works, check the Activity log and make sure you refreshed the tab after updating the extension (the helper script only starts when a page loads).
+The batch switches to Browser clicks automatically. If you want to avoid the attempt, choose **Browser clicks** in the settings. If neither works, check the Activity log. After the extension is updated, an already-open tab keeps the old copy and its buttons stop working: the panel then shows **Reload page**, which loads the new version.
 </details>
 
 <details>
