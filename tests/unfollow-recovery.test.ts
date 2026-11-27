@@ -107,3 +107,110 @@ it("captured Instagram tokens expire and jazoest always matches the token that i
   dom.window.close();
   finish();
 });
+
+// Boots the real panel with one account and a controllable destroy endpoint.
+function bootBatch(acct: string, users: any[], destroy: (n: number) => { status: number; body: any }) {
+  const store: Record<string, any> = { nfb_onboarded: true, igMethod: "api", minDelay: 0, maxDelay: 0 };
+  const listeners: Array<(ch: any) => void> = [];
+  const k = (n: string) => `nfb_${n}_instagram_${acct}`;
+  store[k("scan")] = { at: Date.now(), followers: 0, following: users.length, username: "me", users };
+  store[k("lists")] = { at: Date.now(), followers: [], following: users, followingComplete: true };
+  store.nfb_accounts = { instagram: [acct] };
+  const dom = new JSDOM("<!doctype html><html lang='en' data-nfb='{\"fb_dtsg\":\"T\"}'><body></body></html>", {
+    url: "https://www.instagram.com/x/",
+    runScripts: "outside-only",
+    pretendToBeVisual: true,
+    virtualConsole: new VirtualConsole(),
+  });
+  const w = dom.window as any;
+  (w.document as any).cookie = "ds_user_id=" + acct;
+  (w.document as any).cookie = "csrftoken=abc";
+  const local = {
+    get: async (key: any) => {
+      const o: any = {};
+      (Array.isArray(key) ? key : typeof key === "string" ? [key] : Object.keys(key || {})).forEach((x) => { if (x in store) o[x] = JSON.parse(JSON.stringify(store[x])); });
+      return o;
+    },
+    set: async (o: any) => {
+      const ch: any = {};
+      for (const x in o) { ch[x] = { oldValue: store[x], newValue: o[x] }; store[x] = JSON.parse(JSON.stringify(o[x])); }
+      listeners.forEach((f) => f(ch));
+    },
+    remove: async (key: any) => {
+      const ch: any = {};
+      (Array.isArray(key) ? key : [key]).forEach((x) => { ch[x] = { oldValue: store[x] }; delete store[x]; });
+      listeners.forEach((f) => f(ch));
+    },
+    onChanged: { addListener: (f: any) => listeners.push(f) },
+  };
+  w.chrome = {
+    storage: { local, onChanged: { addListener: (f: any) => listeners.push(f) } },
+    runtime: { sendMessage: (_m: any, cb?: any) => cb && cb(), onMessage: { addListener() {} }, getManifest: () => ({ version: "1.9.0" }) },
+  };
+  w.Element.prototype.scrollIntoView = function () {};
+  let calls = 0;
+  w.fetch = async (url: string) => {
+    const res = (body: any, status = 200) => ({
+      ok: status < 400,
+      status,
+      text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+      json: async () => (typeof body === "string" ? JSON.parse(body) : body),
+    });
+    if (/\/destroy\//.test(url)) { calls++; const r = destroy(calls); return res(r.body, r.status); }
+    if (/\/users\/\w+\/info\//.test(url)) return res({ user: { username: "renamed" } });
+    if (/friendships\/show\//.test(url)) return res({ following: false });
+    return res({});
+  };
+  w.eval(content);
+  const sh = () => (w.document.getElementById("nfb-host") as any).shadowRoot;
+  const click = (el: any) => el.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+  const $ = (id: string) => sh().getElementById(id);
+  const run = async (ms = 900) => {
+    click(sh().getElementById("all"));
+    await sleep(100);
+    click($("del"));
+    await sleep(100);
+    click(sh().querySelector(".modal .btn.danger"));
+    await sleep(ms);
+  };
+  return { w, store, sh, $, click, run, k, calls: () => calls };
+}
+
+it("an empty 429 switches the batch to browser clicks before pausing", async () => {
+  const { ok, finish } = checks();
+  const b = bootBatch("rl1", [{ pk: "p1", username: "user1", full_name: "", pic: "", verified: false }], () => ({ status: 429, body: "" }));
+  await sleep(500);
+  await b.run();
+  const run = b.store[b.k("run")];
+  ok("F1 the API was tried once", b.calls() === 1, String(b.calls()));
+  ok("F2 the batch switched to browser clicks", !!run && run.forceUI === true, JSON.stringify(run && { forceUI: run.forceUI, navFor: run.navFor }));
+  ok("F3 the profile was opened instead of pausing", !!run && run.navFor === 0, JSON.stringify(run && run.navFor));
+  ok("F4 no cool-down was started", !b.store[b.k("cool")], String(b.store[b.k("cool")]));
+  ok("F5 the log explains the switch", /rate-limited the direct API/i.test(b.$("log").textContent), b.$("log").textContent.slice(0, 240));
+  b.w.close();
+  finish();
+});
+
+it("repeated blocks double the cool-down instead of retrying every 6 hours", async () => {
+  const { ok, finish } = checks();
+  const b = bootBatch("rl2", [{ pk: "p1", username: "user1", full_name: "", pic: "", verified: false }], () => ({ status: 429, body: { message: "feedback_required", status: "fail" } }));
+  await sleep(500);
+  await b.run();
+  const first = b.store[b.k("cool")];
+  const streak1 = b.store[b.k("block")];
+  ok("B1 the first block pauses for ~6h", !!first && Math.abs(first - (Date.now() + 6 * 3600000)) < 60000, String(first && (first - Date.now()) / 3600000));
+  ok("B2 the streak is recorded", !!streak1 && streak1.count === 1, JSON.stringify(streak1));
+  ok("B3 the status names the pause", /Cool-down started/.test(b.$("status").textContent), b.$("status").textContent);
+
+  // The user ends the cool-down from the panel; the block streak must survive.
+  await b.w.chrome.storage.local.remove(b.k("cool"));
+  await sleep(250);
+  await b.run();
+  const second = b.store[b.k("cool")];
+  const streak2 = b.store[b.k("block")];
+  ok("B4 a second block within a week pauses for ~12h", !!second && Math.abs(second - (Date.now() + 12 * 3600000)) < 60000, String(second && (second - Date.now()) / 3600000));
+  ok("B5 the streak grows", !!streak2 && streak2.count === 2, JSON.stringify(streak2));
+  ok("B6 the status explains the repeat", /block #2/i.test(b.$("status").textContent), b.$("status").textContent);
+  b.w.close();
+  finish();
+});

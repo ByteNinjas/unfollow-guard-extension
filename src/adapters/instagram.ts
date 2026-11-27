@@ -202,8 +202,14 @@ import type { ResolveResult, ScanContext, Settings, User } from "../types";
     try { j = JSON.parse(text); } catch {}
     if (!r.ok || !j || j.status !== "ok") {
       const msg = (j && (j.message || j.feedback_message)) || text.slice(0, 120).replace(/\s+/g, " ");
-      const err = new Error(`HTTP ${r.status}${msg ? " – " + msg : ""}`);
+      // An empty 429 is the edge/CDN rate limit, not an explicit action block: the browser-click method
+      // may still work, so let the batch try it before pausing. A 429 with a block message stops at once.
+      const rateLimited = r.status === 429 && !BLOCK_RE.test(text);
+      const err = new Error(rateLimited
+        ? "Instagram rate-limited this action (HTTP 429)"
+        : `HTTP ${r.status}${msg ? " – " + msg : ""}`);
       err.block = r.status === 429 || BLOCK_RE.test(text);                 // blocked / rate-limited: starts a cool-down
+      err.rateLimited = rateLimited;                                       // try browser clicks before pausing
       err.fatal = err.block || [401, 403].includes(r.status) || /login_required/i.test(text);
       // the account itself is gone (deleted, deactivated): it can never be unfollowed, so it is dropped from the list
       err.skip = kind === "destroy" && !err.fatal && (r.status === 404 || GONE_RE.test(text));
