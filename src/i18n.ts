@@ -195,6 +195,9 @@ import { NFB } from "./shared";
     ["btn_next", "Next", "Siguiente", "Suivant", "Weiter", "Seguinte"],
     ["btn_skip", "Skip", "Omitir", "Passer", "Überspringen", "Pular"],
     ["btn_done", "Got it", "Entendido", "Compris", "Verstanden", "Entendi"],
+    ["dead_title", "Extension updated", "Extensión actualizada", "Extension mise à jour", "Erweiterung aktualisiert", "Extensão atualizada"],
+    ["dead_body", "This page is still running an older copy of Unfollow Guard, so its controls no longer work. Reload the page to keep using it.", "Esta página sigue ejecutando una copia anterior de Unfollow Guard, así que sus controles ya no funcionan. Recarga la página para seguir usándola.", "Cette page exécute encore une ancienne version d’Unfollow Guard ; ses commandes ne fonctionnent donc plus. Rechargez la page pour continuer.", "Auf dieser Seite läuft noch eine ältere Version von Unfollow Guard, daher funktionieren ihre Bedienelemente nicht mehr. Lade die Seite neu, um sie weiter zu verwenden.", "Esta página ainda está executando uma versão antiga do Unfollow Guard, então os controles não funcionam mais. Recarregue a página para continuar usando."],
+    ["btn_reload", "Reload page", "Recargar página", "Recharger la page", "Seite neu laden", "Recarregar página"],
   ];
 
   const D: Record<string, Record<string, string | undefined>> = {};

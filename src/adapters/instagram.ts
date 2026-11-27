@@ -13,13 +13,17 @@ import type { ResolveResult, ScanContext, Settings, User } from "../types";
   // The hook publishes them with events; the old `data-nfb` attribute is still read once for builds
   // that predate the event bridge, then removed so session tokens never linger in the DOM.
   let capturedState: Record<string, string> = {};
+  let capturedAt: Record<string, number> = {};
   let captureReady = false;
   const mergeCaptured = (detail: unknown) => {
     let data: unknown = null;
     if (typeof detail === "string") { try { data = JSON.parse(detail); } catch { return; } }
     else if (detail && typeof detail === "object") data = detail;
     if (!data || typeof data !== "object") return;
-    for (const [k, v] of Object.entries(data as Record<string, unknown>)) if (typeof v === "string" && v) capturedState[k] = v;
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      // Only a changed value is a fresh observation: replays of the same token must not extend its life.
+      if (typeof v === "string" && v && capturedState[k] !== v) { capturedState[k] = v; capturedAt[k] = Date.now(); }
+    }
   };
   const initCapture = () => {
     if (captureReady) return;
@@ -58,9 +62,10 @@ import type { ResolveResult, ScanContext, Settings, User } from "../types";
 
   let dtsgCache = "", dtsgAt = 0;
   const DTSG_TTL = 30 * 60 * 1000; // the token rotates during a long session: refresh it instead of caching forever
+  const capturedFresh = (key: string) => Date.now() - (capturedAt[key] || 0) < DTSG_TTL;
   const getDtsg = () => {
     const c = captured();
-    if (c.fb_dtsg) return c.fb_dtsg;
+    if (c.fb_dtsg && capturedFresh("fb_dtsg")) return c.fb_dtsg;
     if (dtsgCache && Date.now() - dtsgAt < DTSG_TTL) return dtsgCache;
     const inp = document.querySelector('input[name="fb_dtsg"]');
     if (inp && inp.value) { dtsgCache = inp.value; dtsgAt = Date.now(); return dtsgCache; }
@@ -72,11 +77,14 @@ import type { ResolveResult, ScanContext, Settings, User } from "../types";
                 /"dtsg":\{"token":"([^"]+)"/.exec(t);
       if (m) { dtsgCache = m[1]; dtsgAt = Date.now(); return dtsgCache; }
     }
-    return "";
+    // A stale captured token is still better than no token at all.
+    return c.fb_dtsg || "";
   };
   const jazoestFor = (dtsg: string) => {
     const c = captured();
-    if (c.jazoest) return c.jazoest;
+    // The site's jazoest belongs to the site's token: reuse it only for that exact token, otherwise
+    // derive the value from the token being sent (a mismatched pair looks like a forged request).
+    if (c.jazoest && c.fb_dtsg === dtsg) return c.jazoest;
     let sum = 0;
     for (let i = 0; i < dtsg.length; i++) sum += dtsg.charCodeAt(i);
     return "2" + sum;

@@ -130,6 +130,7 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
 
   async function runLoop() {
     if (running) return;
+    if (!NFB.alive()) return;
     let run = await loadRun();
     if (!run || run.owner !== OWNER) return;
     stop = !!(await chrome.storage.local.get<Record<string, unknown>>(stopKey))[stopKey];
@@ -141,6 +142,7 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
 
     try {
       while (true) {
+        if (!NFB.alive()) return;
         run = await loadRun();
         // Ownership is re-checked on every step: another tab may have started its own batch.
         if (!run) {
@@ -369,12 +371,20 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
       tone = "warn";
     }
 
-    const finalRun = await loadRun();
-    const ownsFinal = !!finalRun && finalRun.owner === OWNER;
-    ui.log(endMsg);
-    if (ownsFinal) {
-      await chrome.storage.local.remove(runKey);
-      await chrome.storage.local.remove(stopKey);
+    let finalRun: RunState | null = null;
+    let ownsFinal = false;
+    try {
+      finalRun = await loadRun();
+      ownsFinal = !!finalRun && finalRun.owner === OWNER;
+      ui.log(endMsg);
+      if (ownsFinal) {
+        await chrome.storage.local.remove(runKey);
+        await chrome.storage.local.remove(stopKey);
+      }
+    } catch {
+      // The extension was reloaded during the batch: Chrome removed its storage API, so there is
+      // nothing left to save. The panel shows a reload banner instead.
+      return;
     }
     const byUser = endMsg === NFB.t("rc_stopped") || endMsg === NFB.t("rc_taken_over");
     stop = false;
