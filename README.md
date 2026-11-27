@@ -209,7 +209,7 @@ sequenceDiagram
         IG-->>Panel: Done
         Panel->>Panel: Update list, history, counters, progress card
     end
-    Note over Panel,IG: Block or rate limit: the batch stops and a cool-down starts
+    Note over Panel,IG: Explicit block: the batch stops and a cool-down starts. A repeated block doubles the pause
 ```
 
 Two unfollow methods are available (⚙ Settings → *Instagram unfollow method*):
@@ -237,7 +237,7 @@ Open them from the **⚙** button in the panel or from the toolbar popup.
 | **Notifications** | On | Desktop notification when a batch finishes, stops or is blocked. |
 | **Language** | Automatic | Interface language of the panel. |
 | **Instagram unfollow method** | Direct API | Direct API with automatic fallback, or Browser clicks only. |
-| **Cool-down after a block** | 6 h | Pause unfollowing for this many hours after a block or rate limit (0 = off). |
+| **Cool-down after a block** | 6 h | Pause unfollowing for this many hours after a block or rate limit (0 = off). A repeat block within a week doubles the pause (6 h → 12 h → 24 h → 48 h). |
 | **Daily counter resets at** | 00:00 | When today's unfollow counter starts over (your local time). The counter can also be reset or set by hand from the panel. |
 | **Only unfollow during active hours** | Off | A batch waits until the window opens (your local time). |
 | **Active hours** | 09:00 – 22:00 | The allowed window, used when the switch above is on. |
@@ -348,6 +348,8 @@ By design: the scan locks after each run to prevent accidental repeats. Open ⚙
 <summary><b>"Cool-down is active"</b></summary>
 
 The extension saw the site block or rate-limit an action and paused unfollowing (default 6 hours). The chip at the top shows the time left. Waiting is the safest option; you can end the cool-down early from the dialog, or change its length under ⚙ Settings → Safety.
+
+If Instagram blocks again within a week, the pause doubles (6 h → 12 h → 24 h → 48 h) so the account isn't hammered. An HTTP 429 with no block message is treated as a rate limit: the batch first retries once with **Browser clicks**, because Instagram sometimes limits the direct API while the normal page still works. Only if that also fails does the cool-down start.
 </details>
 
 <details>
@@ -359,7 +361,7 @@ The first full scan only saves a baseline. After your next scan, new followers a
 <details>
 <summary><b>Direct API unfollow gets rejected</b></summary>
 
-The batch switches to Browser clicks automatically. If you want to avoid the attempt, choose **Browser clicks** in the settings. If neither works, check the Activity log and make sure you refreshed the tab after updating the extension (the helper script only starts when a page loads).
+The batch switches to Browser clicks automatically. If you want to avoid the attempt, choose **Browser clicks** in the settings. If neither works, check the Activity log. After the extension is updated, an already-open tab keeps the old copy and its buttons stop working: the panel then shows **Reload page**, which loads the new version.
 </details>
 
 <details>

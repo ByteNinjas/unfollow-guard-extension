@@ -53,6 +53,7 @@ export interface BatchKeys {
   stop: string;
   day: string;
   cool: string;
+  block: string;
   gone: string;
   sel: string;
   hist: string;
@@ -80,7 +81,7 @@ export function isFreshForeign(run: RunState | null, owner: string, now = Date.n
 }
 
 export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }: BatchDeps) {
-  const { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey } = keys;
+  const { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, block: blockKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey } = keys;
   let running = false;
   let stop = false;
 
@@ -128,8 +129,29 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
     }
   };
 
+  // Instagram's action blocks outlast the first pause: retrying after 6 h can be blocked again.
+  // Each block within a week doubles the pause (6 h → 12 h → 24 h → 48 h) so the account is left alone.
+  // A successful unfollow clears the streak. The user can still end a cool-down early, but the next
+  // block then continues from the higher step instead of going back to 6 h.
+  const BLOCK_WINDOW = 7 * 864e5;
+  const startCooldown = async (s: Settings) => {
+    if (!s.cooldownHours || s.cooldownHours <= 0) return "";
+    const now = Date.now();
+    const prev = (await chrome.storage.local.get<Record<string, unknown>>(blockKey))[blockKey] as
+      { count?: number; at?: number } | undefined;
+    const streak = prev && typeof prev.count === "number" && now - (prev.at || 0) < BLOCK_WINDOW ? prev.count + 1 : 1;
+    await chrome.storage.local.set({ [blockKey]: { count: streak, at: now } });
+    const hours = Math.min(Math.max(48, s.cooldownHours), s.cooldownHours * 2 ** (streak - 1));
+    state.coolUntil = now + hours * 3600000;
+    await chrome.storage.local.set({ [coolKey]: state.coolUntil });
+    return streak > 1
+      ? NFB.t("rc_cool_repeat", { h: hours, n: streak })
+      : NFB.t("rc_cool", { h: hours });
+  };
+
   async function runLoop() {
     if (running) return;
+    if (!NFB.alive()) return;
     let run = await loadRun();
     if (!run || run.owner !== OWNER) return;
     stop = !!(await chrome.storage.local.get<Record<string, unknown>>(stopKey))[stopKey];
@@ -141,6 +163,7 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
 
     try {
       while (true) {
+        if (!NFB.alive()) return;
         run = await loadRun();
         // Ownership is re-checked on every step: another tab may have started its own batch.
         if (!run) {
@@ -236,14 +259,16 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
             lookupError = error as { fatal?: boolean; block?: boolean; message?: string };
           }
           if (lookupError?.fatal) {
-            endMsg = `Stopped: ${lookupError.message}`;
-            tone = "warn";
-            if (lookupError.block && s.cooldownHours > 0) {
-              state.coolUntil = Date.now() + s.cooldownHours * 3600000;
-              await chrome.storage.local.set({ [coolKey]: state.coolUntil });
-              endMsg += ` Cool-down started: unfollowing is paused for ${s.cooldownHours}h.`;
+            if (lookupError.block) {
+              // A rate-limited lookup must not abort a browser-click batch: opening the profile uses
+              // the site's own page, which reveals removed accounts by itself. The unfollow click
+              // still starts the cool-down if Instagram blocks the action.
+              ui.log("Instagram rate-limited the account check: opening the profile directly");
+            } else {
+              endMsg = `Stopped: ${lookupError.message}`;
+              tone = "warn";
+              break;
             }
-            break;
           }
           if (resolved.gone) {
             await ui.dropUnavailable(u);
@@ -289,7 +314,7 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
           ok = true;
           ui.log(`✓ ${u.username} unfollowed`, u.username);
         } catch (error) {
-          const e = error as { stopped?: boolean; message?: string; useUI?: boolean; fatal?: boolean; block?: boolean; skip?: boolean };
+          const e = error as { stopped?: boolean; message?: string; useUI?: boolean; fatal?: boolean; block?: boolean; skip?: boolean; rateLimited?: boolean };
           if (e.stopped) {
             endMsg = NFB.t("rc_stopped");
             tone = "warn";
@@ -297,9 +322,11 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
           }
           errMsg = e.message || String(error);
           ui.log(`✗ ${u.username} — ${errMsg}`, u.username);
-          if (e.useUI && !run.forceUI) {
+          if ((e.useUI || e.rateLimited) && !run.forceUI) {
             await patchRun({ forceUI: true });
-            ui.log("Direct API was rejected: switching to browser clicks for the rest of this batch");
+            ui.log(e.rateLimited
+              ? "Instagram rate-limited the direct API: switching to browser clicks for the rest of this batch"
+              : "Direct API was rejected: switching to browser clicks for the rest of this batch");
             continue; // retry this same account with the browser-click method
           }
           fatal = !!e.fatal;
@@ -312,10 +339,9 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
           run = (await patchRun({ last: { username: u.username, pic: u.pic || "", ok: false } })) || run;
           endMsg = fatal ? `Stopped: ${errMsg}` : `Stopped after 3 failures in a row: ${errMsg}`;
           tone = "warn";
-          if (blocked && s.cooldownHours > 0) {
-            state.coolUntil = Date.now() + s.cooldownHours * 3600000;
-            await chrome.storage.local.set({ [coolKey]: state.coolUntil });
-            endMsg += ` Cool-down started: unfollowing is paused for ${s.cooldownHours}h.`;
+          if (blocked) {
+            const cool = await startCooldown(s);
+            if (cool) endMsg += ` ${cool}`;
           }
           break;
         }
@@ -335,6 +361,7 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
             [histKey]: state.hist,
             [failKey]: state.failed,
           });
+          await chrome.storage.local.remove(blockKey); // a successful action ends the block streak
           await ui.refreshCap();
         } else if (skip) {
           await ui.dropUnavailable(u);
@@ -369,12 +396,20 @@ export function createBatchRunner({ state, ui, adapter: A, keys, owner: OWNER }:
       tone = "warn";
     }
 
-    const finalRun = await loadRun();
-    const ownsFinal = !!finalRun && finalRun.owner === OWNER;
-    ui.log(endMsg);
-    if (ownsFinal) {
-      await chrome.storage.local.remove(runKey);
-      await chrome.storage.local.remove(stopKey);
+    let finalRun: RunState | null = null;
+    let ownsFinal = false;
+    try {
+      finalRun = await loadRun();
+      ownsFinal = !!finalRun && finalRun.owner === OWNER;
+      ui.log(endMsg);
+      if (ownsFinal) {
+        await chrome.storage.local.remove(runKey);
+        await chrome.storage.local.remove(stopKey);
+      }
+    } catch {
+      // The extension was reloaded during the batch: Chrome removed its storage API, so there is
+      // nothing left to save. The panel shows a reload banner instead.
+      return;
     }
     const byUser = endMsg === NFB.t("rc_stopped") || endMsg === NFB.t("rc_taken_over");
     stop = false;

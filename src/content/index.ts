@@ -18,7 +18,7 @@ import "../adapters";
   const scanKey = K("scan"), listsKey = K("lists"), keepKey = K("keep"), selKey = K("sel"),
         goneKey = K("gone"), histKey = K("hist"), runKey = K("run"), stopKey = K("stop"),
         snapKey = K("snap"), flwKey = K("flw"), coolKey = K("cool"), metaKey = K("meta"), seenKey = K("seen"),
-        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail");
+        tagsKey = K("tags"), schedKey = K("sched"), picsKey = K("pics"), failKey = K("fail"), blockKey = K("block");
   const allowKey = "allowScan_" + A.id;
   const IS_BETA = !!(NFB.PLATFORMS.find((p: any) => p.id === A.id) || {}).beta;
 
@@ -160,6 +160,13 @@ import "../adapters";
     .toast .tbtn { margin-left: 12px; background: transparent; border: 0; color: #7cc4ff; font-weight: 700; cursor: pointer; font-size: 13px; }
     .tagbtn { width: 28px; padding: 0; font-size: 13px; flex: none; }
     .row .fn { max-width: 100%; }
+
+    /* shown when the extension was reloaded or updated while this page stayed open */
+    .deadcard { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px));
+                background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 18px;
+                box-shadow: 0 18px 48px rgba(0,0,0,.38); padding: 20px; z-index: 60; }
+    .deadcard h3 { margin: 0 0 8px; font-size: 16px; font-weight: 700; color: var(--fg); }
+    .deadcard p { margin: 0 0 16px; font-size: 13px; line-height: 1.55; color: var(--fg2); }
   </style>
   <div class="app" id="app" data-theme="system">
     <button class="fab" id="fab" aria-label="Unfollow Guard"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="8" r="4"/><path d="M2 21a8 8 0 0 1 16 0"/><path d="M16 12h6"/></svg><span>Unfollow Guard</span></button>
@@ -250,6 +257,54 @@ import "../adapters";
 
   const $ = (id: string) => shadow.getElementById(id) as any;
   const tr = (k: string, v?: Record<string, unknown>) => NFB.t(k, v);
+
+  // ---------- extension liveness ----------
+  // Chrome keeps an already-running content script alive when the extension is reloaded or updated,
+  // but removes its APIs. Without this the panel keeps its timers, every storage call rejects with
+  // "Extension context invalidated." and the buttons silently stop working. Instead, stop everything
+  // and tell the user to reload the page.
+  const timers: Array<ReturnType<typeof setInterval>> = [];
+  let stopBatch: (() => void) | null = null;
+  let deadShown = false;
+  function goDead() {
+    if (deadShown) return;
+    deadShown = true;
+    if (!NFB.dead) NFB.die();
+    timers.forEach((id) => clearInterval(id));
+    timers.length = 0;
+    try { stopBatch?.(); } catch {}
+    shadow.querySelectorAll(".overlay").forEach((el) => el.remove());
+    $("panel").style.display = "none";
+    $("fab").style.visibility = "hidden";
+    const card = document.createElement("div");
+    card.className = "deadcard";
+    card.setAttribute("role", "alertdialog");
+    const title = document.createElement("h3");
+    title.textContent = NFB.t("dead_title");
+    const body = document.createElement("p");
+    body.textContent = NFB.t("dead_body");
+    const reload = document.createElement("button");
+    reload.className = "btn primary";
+    reload.type = "button";
+    reload.textContent = NFB.t("btn_reload");
+    reload.onclick = () => location.reload();
+    card.append(title, body, reload);
+    $("app").append(card);
+  }
+  NFB.onDead(goDead);
+  // Interval wrapper: stops the moment the extension context disappears, and never leaks rejections.
+  const every = (fn: () => unknown, ms: number) => {
+    const id = setInterval(() => {
+      if (!NFB.alive()) return goDead();
+      Promise.resolve().then(fn).catch((e: unknown) => {
+        if (!NFB.alive() || /context invalidated|invalid context type/i.test(String((e as { message?: string } | null)?.message || e))) goDead();
+        else console.error("[Unfollow Guard]", e);
+      });
+    }, ms);
+    timers.push(id);
+    return id;
+  };
+
   NFB.watchTheme($("app"));
   const panel = $("panel"), listEl = $("list"), modalHost = $("modalhost");
   const scanBtn = $("scan"), delBtn = $("del"), keepBtn = $("keepSel"), stopBtn = $("runstop");
@@ -790,7 +845,7 @@ import "../adapters";
     $("chipCap").textContent = tr("chip_today", { used: capInfo.used, cap: capInfo.cap }) + (capInfo.warm ? tr("chip_warm") : "");
     if (NFB.today() !== lastDay) { lastDay = NFB.today(); refreshCap(); }
   }
-  setInterval(tick, 1000);
+  every(tick, 1000);
 
   async function refreshCap() {
     const s = await NFB.getSettings();
@@ -1015,7 +1070,13 @@ import "../adapters";
   $("start").onchange = saveOpts;
 
   async function refreshButtons() {
-    const s = await NFB.getSettings();
+    if (!NFB.alive()) return goDead();
+    let s;
+    try { s = await NFB.getSettings(); }
+    catch (e) {
+      if (!NFB.alive()) return goDead();
+      throw e;
+    }
     const allow = !!s[allowKey];
     scanBtn.disabled = scanning || unfollowing || !allow || !A.canScan(scanCache);
     $("lim").disabled = $("start").disabled = scanBtn.disabled;
@@ -1023,7 +1084,7 @@ import "../adapters";
     scanBtn.textContent = scanning ? tr("btn_scanning") : allow ? (label === "Scan" ? tr("btn_scan") : label) : tr("btn_locked");
     scanBtn.title = allow ? "" : tr("tip_locked");
   }
-  setInterval(refreshButtons, 1500);
+  every(refreshButtons, 1500);
 
   const mergeLists = (cur: any, add: any) => {
     const out = { ...(cur || {}) };
@@ -1205,9 +1266,11 @@ import "../adapters";
       refreshRow, removeFromList, dropUnavailable, refreshCap, maxSel,
     },
     adapter: A,
-    keys: { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey },
+    keys: { run: runKey, stop: stopKey, day: dayKey, cool: coolKey, block: blockKey, gone: goneKey, sel: selKey, hist: histKey, fail: failKey },
     owner: OWNER,
   });
+  // An extension reload kills storage, so stop the batch in memory without trying to persist anything.
+  stopBatch = () => { void batch.requestStop(false); };
   const doStop = async () => {
     if (schedPending) { schedPending.cancel = true; return; }
     stopBtn.disabled = true;
@@ -1299,7 +1362,7 @@ import "../adapters";
     notify("Unfollow Guard · " + A.label, tr("sc_sub", { n: pool.length }));
     void batch.beginBatch(pool, true);
   }
-  setInterval(schedCheck, 30000);
+  every(schedCheck, 30000);
   NFB.schedCheck = schedCheck; // exposed for the automated tests
 
 
@@ -1412,47 +1475,56 @@ import "../adapters";
 
   // ---------- init ----------
   (async () => {
-    await NFB.migrate();
-    await NFB.migrateAccount(A.id, ACCT);
-    const s = await NFB.getSettings();
-    NFB.setLang(s.lang);
-    applyLang();
-    showTheme(s.theme);
-    refreshGear();
-    applyEnabled(!!s.enabled);
-    await loadCfg();
-    await NFB.bindSettings(shadow, modalHost);
-    const o = await chrome.storage.local.get<Record<string, any>>([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
-    scanCache = o[scanKey] || null;
-    lists = o[listsKey] || null;
-    keep = o[keepKey] || {};
-    gone = new Set(o[goneKey] || []);
-    hist = o[histKey] || [];
-    flw = o[flwKey] || [];
-    seen = o[seenKey] || seen;
-    tags = o[tagsKey] || {};
-    failed = o[failKey] || {};
-    picFresh = o[picsKey] || {};
-    onboarded = !!o.nfb_onboarded;
-    coolUntil = o[coolKey] || 0;
-    if (scanCache && scanCache.username) $("acct").textContent = " · @" + scanCache.username;
-    // first run with this version: use the saved followers list as the baseline for "who unfollowed me"
-    if (A.followerDiff && !o[snapKey] && lists && Array.isArray(lists.followers) && lists.followersComplete !== false) {
-      await chrome.storage.local.set({ [snapKey]: { at: (scanCache && scanCache.at) || Date.now(), users: lists.followers.map(slim) } });
-    }
-    const recentGone = recentlyUnfollowed();
-    users = ((scanCache && scanCache.users) || []).filter((u: any) => !keep[u.pk] && !gone.has(u.pk) && !recentGone.has(u.pk));
-    const have = new Set(users.map((u: any) => u.pk));
-    selected = new Set((o[selKey] || []).filter((pk: string) => have.has(pk)));
-    if (o.nfb_opts) { $("lim").value = o.nfb_opts.lim; $("start").value = o.nfb_opts.start; }
-    derive();
-    await refreshCap();
-    renderList();
-    if (users.length) setStatus(tr("nt_saved", { n: users.length.toLocaleString(), s: selected.size }));
-    else setStatus(tr(A.id === "facebook" ? "nt_hint_fb" : "nt_hint_ig"));
-    refreshButtons();
+    try {
+      await NFB.migrate();
+      await NFB.migrateAccount(A.id, ACCT);
+      const s = await NFB.getSettings();
+      NFB.setLang(s.lang);
+      applyLang();
+      showTheme(s.theme);
+      refreshGear();
+      applyEnabled(!!s.enabled);
+      await loadCfg();
+      await NFB.bindSettings(shadow, modalHost);
+      const o = await chrome.storage.local.get<Record<string, any>>([scanKey, listsKey, keepKey, selKey, goneKey, histKey, snapKey, flwKey, coolKey, blockKey, seenKey, tagsKey, picsKey, failKey, "nfb_opts", "nfb_onboarded"]);
+      scanCache = o[scanKey] || null;
+      lists = o[listsKey] || null;
+      keep = o[keepKey] || {};
+      gone = new Set(o[goneKey] || []);
+      hist = o[histKey] || [];
+      flw = o[flwKey] || [];
+      seen = o[seenKey] || seen;
+      tags = o[tagsKey] || {};
+      failed = o[failKey] || {};
+      picFresh = o[picsKey] || {};
+      onboarded = !!o.nfb_onboarded;
+      coolUntil = o[coolKey] || 0;
+      // Carry a cool-down that was already active before this version into the block streak, so the
+      // next block doubles it instead of starting the 6 h cycle from scratch again.
+      if (coolUntil > Date.now() && !o[blockKey]) await chrome.storage.local.set({ [blockKey]: { count: 1, at: Date.now() } });
+      if (scanCache && scanCache.username) $("acct").textContent = " · @" + scanCache.username;
+      // first run with this version: use the saved followers list as the baseline for "who unfollowed me"
+      if (A.followerDiff && !o[snapKey] && lists && Array.isArray(lists.followers) && lists.followersComplete !== false) {
+        await chrome.storage.local.set({ [snapKey]: { at: (scanCache && scanCache.at) || Date.now(), users: lists.followers.map(slim) } });
+      }
+      const recentGone = recentlyUnfollowed();
+      users = ((scanCache && scanCache.users) || []).filter((u: any) => !keep[u.pk] && !gone.has(u.pk) && !recentGone.has(u.pk));
+      const have = new Set(users.map((u: any) => u.pk));
+      selected = new Set((o[selKey] || []).filter((pk: string) => have.has(pk)));
+      if (o.nfb_opts) { $("lim").value = o.nfb_opts.lim; $("start").value = o.nfb_opts.start; }
+      derive();
+      await refreshCap();
+      renderList();
+      if (users.length) setStatus(tr("nt_saved", { n: users.length.toLocaleString(), s: selected.size }));
+      else setStatus(tr(A.id === "facebook" ? "nt_hint_fb" : "nt_hint_ig"));
+      refreshButtons();
 
-    // A batch started in this tab keeps going after the page reloads (browser-click method).
-    await batch.resume(enabled);
+      // A batch started in this tab keeps going after the page reloads (browser-click method).
+      await batch.resume(enabled);
+    } catch (e) {
+      if (!NFB.alive()) return goDead();
+      console.error("[Unfollow Guard]", e);
+      setStatus("Error: " + (e as Error).message);
+    }
   })();
 })();
